@@ -42,6 +42,7 @@ migrations/              numbered SQL files
 scripts/prepare.sh       env file and generated secrets
 scripts/lib/env.sh       reading values from the env file
 scripts/test-services.sh PostgreSQL tests against a throwaway container
+compose.webhook.yaml     opt-in: publishes the webhook port on loopback
 src/telegram_bot_gateway/
   config.py, cli.py
   adapters/inbound/telegram/serve.py   start-up, polling or webhook, heartbeat
@@ -49,7 +50,7 @@ src/telegram_bot_gateway/
 
 ## Configuration
 
-See FR-001 of the spec for the full list and defaults. `.env.example` is the tracked template; `.env` is the ignored file the service reads.
+See FR-001 of the spec for the full list and defaults; the webhook port is published only with `compose.webhook.yaml`. `.env.example` is the tracked template; `.env` is the ignored file the service reads.
 
 ## Complexity Tracking
 

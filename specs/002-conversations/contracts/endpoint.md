@@ -37,7 +37,7 @@ The assembled assistant message is `{"role": "assistant", "content": <text or nu
 | Timeout | `The endpoint took too long to answer.` |
 | Other transport failure | `Could not reach the endpoint: <error class name>` |
 
-Timeouts: `REQUEST_TIMEOUT` seconds (default 600) for each wait (reading, writing, acquiring a connection), so the clock restarts whenever data arrives; the connection 10 seconds.
+Timeouts: `REQUEST_TIMEOUT` seconds (default 600) for the whole request, and 10 seconds for the connection.
 
 ## `GET <base>/models`
 

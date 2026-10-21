@@ -13,7 +13,7 @@ def set_param(session: Session, name: str, raw: str) -> str:
 
 
 def unset_param(session: Session, name: str) -> str:
-    if name not in settings.PARAMS and name != "reasoning_effort":
+    if name not in settings.PARAMS:
         raise ValueError(f"unknown setting '{name}'")
     session.params.pop(name, None)
     return f"{name} reset to the endpoint's default"
@@ -39,7 +39,7 @@ def reset_settings(session: Session) -> None:
 
 def describe(session: Session, default_model: str) -> str:
     lines = [f"model: {session.model or default_model}" + ("" if session.model else " (default)")]
-    for name in (*settings.PARAMS, "reasoning_effort"):
+    for name in settings.PARAMS:
         if name in session.params:
             lines.append(f"{name}: {session.params[name]}")
     if len(lines) == 1:

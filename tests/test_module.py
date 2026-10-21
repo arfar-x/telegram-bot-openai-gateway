@@ -76,8 +76,12 @@ def test_a_second_poller_is_reported_plainly(caplog):
 def test_the_heartbeat_file_is_written(tmp_path):
     target = tmp_path / "healthy"
 
+    class Bot:
+        async def get_me(self):
+            return None
+
     async def go():
-        task = asyncio.create_task(serve_mod._heartbeat(str(target)))
+        task = asyncio.create_task(serve_mod._heartbeat(str(target), Bot()))
         await asyncio.sleep(0.05)
         task.cancel()
 

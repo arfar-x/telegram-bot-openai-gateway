@@ -32,6 +32,12 @@ class Settings:
     webhook_port: int = 8443
     migrations_dir: str = "migrations"
     health_file: str = "/tmp/healthy"
+    history_max_chars: int = 200_000
+    message_text_days: int = 30
+    max_concurrent_turns: int = 2
+    telegram_proxy: str = ""
+    telegram_connect_timeout: float = 20.0
+    telegram_read_timeout: float = 30.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None, *, need_bot: bool = True) -> Settings:
@@ -59,4 +65,10 @@ class Settings:
             webhook_port=int(env.get("WEBHOOK_PORT") or 8443),
             migrations_dir=env.get("MIGRATIONS_DIR", "migrations"),
             health_file=env.get("HEALTH_FILE", "/tmp/healthy"),
+            history_max_chars=int(env.get("HISTORY_MAX_CHARS") or 200_000),
+            message_text_days=int(env.get("MESSAGE_TEXT_DAYS") or 30),
+            max_concurrent_turns=int(env.get("MAX_CONCURRENT_TURNS") or 2),
+            telegram_proxy=env.get("TELEGRAM_PROXY", ""),
+            telegram_connect_timeout=float(env.get("TELEGRAM_CONNECT_TIMEOUT") or 20),
+            telegram_read_timeout=float(env.get("TELEGRAM_READ_TIMEOUT") or 30),
         )

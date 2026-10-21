@@ -4,7 +4,7 @@
 |---|---|
 | **Spec ID** | SPEC-TG-001 |
 | **Status** | Implemented; not yet run against the live Telegram API |
-| **Version** | 0.4.0 |
+| **Version** | 0.5.0 |
 | **Last updated** | 2026-10-21 |
 | **Implements** | this repository |
 | **Related** | [`specs/`](../specs/glossary.md) |
@@ -67,6 +67,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-LNK-07 | In a group, an unlinked user who triggers the bot MUST get one short "message me privately to link" reply, at most once per 10 minutes per user. | done |
 | FR-LNK-08 | Linking MUST sit behind a port so another identity source can replace pairing without changing the rest. | done |
 | FR-LNK-09 | The package MUST NOT import another product's code; a deployment script outside the package may issue the API key and pass it in. | done |
+| FR-LNK-10 | A turn of a user whose stored key cannot be decrypted MUST be answered with a message saying the link must be renewed, not left without a reply. | done |
 
 ### 5.2 Sessions — `FR-SES`
 
@@ -110,6 +111,8 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-TRN-06 | An endpoint error MUST be shown to the user with its message, and the history MUST stay as it was before the turn. | done |
 | FR-TRN-07 | A request MUST NOT outlive a configurable timeout (default 10 minutes). | done |
 | FR-TRN-08 | Every request MUST begin with a system message telling the model it is talking in Telegram: keep answers short unless asked, use only Telegram-friendly Markdown and a few emojis, do not name the sources of an answer unless asked, reply in the user's language, and shorter still in a group. The message MUST NOT be stored in the history. | done |
+| FR-TRN-09 | The history sent to the endpoint MUST stay within `HISTORY_MAX_CHARS` by dropping the oldest whole turns, never the turn being answered. | done |
+| FR-TRN-10 | One user MUST NOT have more than `MAX_CONCURRENT_TURNS` turns running at once across chats; further turns wait. | done |
 
 ### 5.5 Outgoing messages — `FR-OUT`
 
@@ -126,6 +129,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-OUT-09 | When progress display is enabled (default off), `reasoning_content` of the endpoint MUST appear as one silent message edited in place and removed after the answer. | done |
 | FR-OUT-10 | Telegram flood control MUST be honored by waiting the `retry_after` it states. | done |
 | FR-OUT-11 | An empty answer MUST send nothing and MUST NOT count as a failure. | done |
+| FR-OUT-12 | A send that failed because the connection could not be made MUST be retried after 1, 2, 4 and 8 seconds, a timed-out send MUST NOT, and the session MUST be saved only after the reply was sent. | done |
 
 ### 5.6 Questions and approvals — `FR-ASK`
 
@@ -160,9 +164,11 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-OPS-02 | Updates queued while the bot was offline MUST be dropped on a cold start. | done |
 | FR-OPS-03 | A repeated `update_id` MUST be ignored. | done |
 | FR-OPS-04 | The bot MUST apply its own SQL migrations at startup, in order, once. | done |
-| FR-OPS-05 | The bot MUST publish no port and answer a health check for the container. | done |
+| FR-OPS-05 | The bot MUST publish no port and answer a health check for the container that fails while Telegram is unreachable. | done |
 | FR-OPS-06 | Secrets MUST come from the environment only and MUST NOT be logged. | done |
 | FR-OPS-07 | Two bots polling one token MUST be reported plainly in the log. | done |
+| FR-OPS-08 | When the bot stops, each chat with an unanswered message MUST be told once to send it again. | done |
+| FR-OPS-09 | Message texts older than `MESSAGE_TEXT_DAYS` and expired pairing codes MUST be deleted at start and daily. | done |
 
 ### 5.9 Configuration — `FR-CFG`
 
@@ -247,6 +253,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-LNK-07 | 001/FR-016 |
 | FR-LNK-08 | 001 research (replaceable step), constitution (Additional Constraints) |
 | FR-LNK-09 | 001/FR-012, constitution I |
+| FR-LNK-10 | 001/FR-020 |
 | FR-SES-01 | 002/FR-019 |
 | FR-SES-02 | 002/FR-001, 002/FR-002, 002/FR-018 |
 | FR-SES-03 | 002/FR-017, 002/FR-018 |
@@ -273,8 +280,10 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-TRN-04 | 002/FR-016, 002/FR-009 |
 | FR-TRN-05 | 002/FR-015 |
 | FR-TRN-06 | 002/FR-009, 002/FR-010, 002/FR-011 |
-| FR-TRN-07 | 002/FR-012 (differs: see KD-008) |
+| FR-TRN-07 | 002/FR-012 |
 | FR-TRN-08 | 002/FR-001, 002 `contracts/endpoint.md` (system note) |
+| FR-TRN-09 | 002/FR-029 |
+| FR-TRN-10 | 002/FR-030 |
 | FR-OUT-01 | 004/FR-001 |
 | FR-OUT-02 | 004/FR-002, 004/FR-003, 004/FR-004 |
 | FR-OUT-03 | 004/FR-010, 004/FR-011 |
@@ -286,13 +295,14 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-OUT-09 | 004/FR-005 |
 | FR-OUT-10 | 004/FR-015 |
 | FR-OUT-11 | 004/FR-020, 002/FR-007 |
+| FR-OUT-12 | 004/FR-022, 002/FR-008 |
 | FR-ASK-01 | 005 `contracts/clarify-tool.md`, 005/FR-001 |
 | FR-ASK-02 | 005/FR-003 |
 | FR-ASK-03 | 005/FR-005, 005/FR-008, 005/FR-009 |
 | FR-ASK-04 | 005/FR-003 |
 | FR-ASK-05 | 005/FR-005, 005/FR-006 |
 | FR-ASK-06 | 005/FR-005 |
-| FR-ASK-07 | 005/FR-010, 005/FR-011 (expiry is applied at the owner's next message: see KD-004) |
+| FR-ASK-07 | 005/FR-010, 005/FR-011, 005/FR-013 |
 | FR-CMD-01 | 002/FR-028, 006/FR-008, 001/FR-018 |
 | FR-CMD-02 | 002/FR-021 |
 | FR-CMD-03 | 002/FR-022 |
@@ -305,9 +315,11 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-OPS-02 | 006/FR-005 |
 | FR-OPS-03 | 003/FR-001 |
 | FR-OPS-04 | 006/FR-007 |
-| FR-OPS-05 | 006/FR-014, 006/FR-015 |
+| FR-OPS-05 | 006/FR-014, 006/FR-015, 006/FR-009 |
 | FR-OPS-06 | 006/FR-010, 006 SC-005 |
 | FR-OPS-07 | 006/FR-011 |
+| FR-OPS-08 | 006/FR-020 |
+| FR-OPS-09 | 006/FR-021, 002/FR-031, 001/FR-019 |
 | FR-CFG-01 | 006/FR-001 |
 | FR-CFG-02 | constitution I |
 | FR-CFG-03 | 006/FR-002 |
@@ -318,4 +330,4 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | AS-04 | 005 User Story 1 |
 | AS-05 | 003 User Story 3 |
 
-Known defects and gaps are recorded in the `Known Defects and Gaps` section of the directory they belong to: KD-001, KD-003, KD-006, KD-007, KD-008 and GAP-001, GAP-003, GAP-006 in 002; KD-002, GAP-002, GAP-004 in 006; KD-004 and GAP-005 in 005; KD-005 in 003; GAP-007, GAP-008, GAP-009 in 001. All are scheduled for the next task.
+No known defects or gaps are open. Each directory's `Known Defects and Gaps` section lists any that are found later, and a fix removes its entry; `tests/test_fixed_defects.py` holds the regression tests of the ones fixed so far.

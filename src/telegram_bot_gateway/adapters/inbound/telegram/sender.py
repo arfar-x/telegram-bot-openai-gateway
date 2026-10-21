@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from telegram import Bot, ReplyParameters
-from telegram.error import BadRequest, RetryAfter
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 from telegram_bot_gateway.application.ports import Store
 from telegram_bot_gateway.domain.formatting import Chunk, render, to_markdown_v2, to_plain
@@ -69,14 +69,14 @@ class Sender:
     async def _with_fallbacks(self, method: Any, base: dict[str, Any], chunk: Chunk) -> Any:
         kwargs = dict(base)
         plain = False
-        for _ in range(5):
+        for attempt in range(5):
             try:
                 if plain:
                     return await method(text=chunk.plain, **kwargs)
                 return await method(text=chunk.markdown_v2, parse_mode="MarkdownV2", **kwargs)
             except RetryAfter as exc:
                 await asyncio.sleep(_seconds(exc.retry_after) + 0.5)
-            except BadRequest as exc:
+            except BadRequest as exc:  # a refusal, although the library files it under network errors
                 reason = str(exc).lower()
                 if not plain and any(w in reason for w in ("parse", "markdown", "entities")):
                     log.info("Telegram rejected the formatting; sending plain text")
@@ -85,4 +85,11 @@ class Sender:
                     kwargs.pop("message_thread_id")
                 else:
                     raise
+            except TimedOut:
+                raise  # it may have been delivered: a second try could repeat it
+            except NetworkError:
+                if attempt == 4:
+                    raise
+                log.info("could not reach Telegram; trying again")
+                await asyncio.sleep(2**attempt)  # 1, 2, 4, 8 seconds
         raise RuntimeError("Telegram kept refusing the message")

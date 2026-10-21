@@ -9,9 +9,9 @@ Every command works in a private chat; in a group it acts on the sender's own se
 | `/stop` | no | `Stopped.` when something was cancelled or discarded, else `Nothing is running.` |
 | `/whoami` | no | Three lines: `Telegram id: <id>`, `Account: linked as <username>` or `Account: not linked`, `Session: <session key>`; never a key |
 | `/help` | no | The help text below |
-| `/model [name]` | yes | With a name: `model = <name>`. Without: buttons for up to 40 models, text `Choose a model:` |
+| `/model [name]` | yes | With a name: `model = <name>`. Without: buttons for up to 40 models, text `Choose a model:`, or `Choose a model (showing 40 of <n>; send /model <name> for any other):` when there are more |
 | `/reasoning [level]` | yes | With a level: `reasoning = <level>`, or `reasoning reset to the endpoint's default` for `default`. Without: buttons none, minimal, low / medium, high, default, text `Reasoning effort:` |
-| `/set <name> <value>` | yes | `<name> = <value>`; with fewer than two arguments: `usage: /set <name> <value>; names: temperature, top_p, max_tokens, seed, verbosity, presence_penalty, frequency_penalty, stop` |
+| `/set <name> <value>` | yes | `<name> = <value>`; with fewer than two arguments: `usage: /set <name> <value>; names: temperature, top_p, max_tokens, seed, verbosity, presence_penalty, frequency_penalty, stop, reasoning_effort` |
 | `/unset <name>` | yes | `<name> reset to the endpoint's default`; with other than one argument: `usage: /unset <name>`; unknown name: `unknown setting '<name>'` |
 | `/settings` | yes | The model line and one line per setting, with a Reset button |
 
@@ -27,7 +27,7 @@ Reset button: clears the model and all settings, answers `Settings reset.`
 | Out of range | `<name> must be between <low> and <high>` (`at least <low>` when there is no upper bound) |
 | Bad verbosity | `verbosity must be one of low, medium, high` |
 | Bad stop | `stop must be text or a JSON list of text`, or `stop takes one to four strings` |
-| Bad reasoning level | `reasoning must be one of none, minimal, low, medium, high` |
+| Bad reasoning level | `reasoning must be one of none, minimal, low, medium, high` (for `/reasoning` and for `/set reasoning_effort`) |
 
 ## Help text
 

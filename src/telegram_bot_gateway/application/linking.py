@@ -9,6 +9,10 @@ from telegram_bot_gateway.application.ports import Store, Vault
 from telegram_bot_gateway.domain import pairing
 
 
+class KeyUnreadable(Exception):
+    """A stored API key cannot be decrypted with the configured key."""
+
+
 @dataclass(frozen=True)
 class Paired:
     code: str
@@ -22,6 +26,7 @@ class Refused:
 async def request(
     store: Store, *, telegram_user_id: int, username: str, telegram_name: str, chat_id: int, now: float
 ) -> Paired | Refused:
+    await store.prune_pairings(before=now - pairing.TTL_SECONDS)
     live = [p for p in await store.pairings_of(telegram_user_id) if now - p.created_at < pairing.TTL_SECONDS]
     if live and now - max(p.created_at for p in live) < pairing.REQUEST_INTERVAL_SECONDS:
         return Refused("too_soon")
@@ -44,7 +49,12 @@ async def approve(store: Store, vault: Vault, code: str, api_key: str, *, now: f
 
 async def api_key_for(store: Store, vault: Vault, telegram_user_id: int) -> str | None:
     link = await store.get_link(telegram_user_id)
-    return vault.decrypt(link.api_key_enc) if link else None
+    if link is None:
+        return None
+    try:
+        return vault.decrypt(link.api_key_enc)
+    except ValueError as exc:
+        raise KeyUnreadable(str(exc)) from exc
 
 
 async def unlink(store: Store, *, telegram_user_id: int | None = None, username: str | None = None) -> int:

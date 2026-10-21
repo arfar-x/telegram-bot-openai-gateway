@@ -26,9 +26,7 @@ principles it follows.
 
 Behaviour is specified under [`specs/`](specs/glossary.md), one numbered directory per capability.
 [`docs/spec.md`](docs/spec.md) stays the test-gated registry of requirement ids and maps them to the specs.
-Defects found when the specs were written are listed in each spec's `Known Defects and Gaps` and are scheduled
-for correction; the strict expected-failure tests in `tests/test_known_defects.py` turn into failures when a
-defect is fixed, and the marker is then removed with the fix.
+A defect or gap found later is listed in its spec's `Known Defects and Gaps` section and removed by the change that fixes it; `tests/test_fixed_defects.py` holds regression tests for the ones fixed so far.
 
 ## Commands
 

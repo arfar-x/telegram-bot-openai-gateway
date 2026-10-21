@@ -21,6 +21,8 @@ from telegram_bot_gateway.domain.prompt import telegram_context
 
 log = logging.getLogger(__name__)
 
+RESTART_NOTICE = "I was restarted before I could answer. Please send your message again."
+UNREADABLE_KEY = "Your link can no longer be read. Ask the operator to link you again."
 LINK_PROMPT = "You are not linked yet. Send /start <your username> here and I will give you a code for the operator."
 PROGRESS_INTERVAL = 2.0
 PROGRESS_TAIL = 600
@@ -45,6 +47,7 @@ class _Bucket:
 class _Run:
     task: asyncio.Task | None = None
     queue: list[Job] = field(default_factory=list)
+    current: list[Job] = field(default_factory=list)
 
 
 def card_markup(options: list[str], *, with_other: bool) -> InlineKeyboardMarkup:
@@ -60,6 +63,7 @@ class Runtime:
         self._sender, self._cfg = sender, config
         self._buckets: dict[str, _Bucket] = {}
         self._runs: dict[str, _Run] = {}
+        self._slots: dict[int, asyncio.Semaphore] = {}  # running turns per person, across chats
         self._marked: dict[tuple[int, int], Target] = {}  # messages carrying our 👀
 
     # -- intake --------------------------------------------------------------------------------
@@ -87,6 +91,7 @@ class Runtime:
     async def _drain(self, key: str, run: _Run, jobs: list[Job]) -> None:
         try:
             while jobs:
+                run.current = jobs
                 try:
                     await self._turn(key, jobs)
                 except asyncio.CancelledError:
@@ -116,19 +121,52 @@ class Runtime:
             pass
         return True
 
+    async def shutdown(self) -> None:
+        """Tell everyone whose message will not be answered, because the process is stopping, to send it again."""
+        waiting: list[Job] = [j for b in self._buckets.values() for j in b.jobs]
+        for run in self._runs.values():
+            waiting += run.current + run.queue
+        for bucket in self._buckets.values():
+            if bucket.timer:
+                bucket.timer.cancel()
+        self._buckets.clear()
+        for run in self._runs.values():
+            if run.task:
+                run.task.cancel()
+        chats: dict[tuple[int, int | None], Target] = {}
+        for job in waiting:
+            chats.setdefault((job.target.chat_id, job.target.thread_id),
+                             Target(job.target.chat_id, job.target.chat_type, job.target.thread_id, None))
+        for target in chats.values():
+            try:
+                await asyncio.wait_for(self._sender.send(target, RESTART_NOTICE, notify=False), 3)
+            except Exception:
+                log.debug("could not tell a chat that its message was not answered", exc_info=True)
+        await self._unmark([j.target for j in waiting])
+
     def busy(self, key: str) -> bool:
         return key in self._runs
 
     # -- one turn ------------------------------------------------------------------------------
     async def _turn(self, key: str, jobs: list[Job]) -> None:
+        slot = self._slots.setdefault(jobs[-1].user_id, asyncio.Semaphore(self._cfg.max_concurrent_turns))
+        async with slot:
+            await self._run_turn(key, jobs)
+
+    async def _run_turn(self, key: str, jobs: list[Job]) -> None:
         last = jobs[-1]
         target = last.target
-        api_key = await linking.api_key_for(self._store, self._vault, last.user_id)
+        try:
+            api_key = await linking.api_key_for(self._store, self._vault, last.user_id)
+        except linking.KeyUnreadable:
+            log.error("the stored API key of telegram user %s cannot be decrypted with CREDS_KEY", last.user_id)
+            await self._sender.send(target, UNREADABLE_KEY)
+            return
         if api_key is None:
             await self._sender.send(target, LINK_PROMPT)
             return
         session = await self._store.load_session(key) or Session(key, last.user_id)
-        work, stale = turn.begin(session, merge([j.item for j in jobs]), now=time.time())
+        work, stale = turn.begin(session, merge([j.item for j in jobs]), now=time.time(), max_chars=self._cfg.history_max_chars)
         if stale is not None and stale.card_message_id is not None:
             await self._safely(self._sender.edit(stale.chat_id, stale.card_message_id, f"{stale.question}\n\n⌛ Expired"))
         typing = asyncio.create_task(self._typing(target))
@@ -159,22 +197,25 @@ class Runtime:
             if progress:
                 await progress.finish()
 
-        fresh = await self._store.load_session(key)  # settings changed during the turn win
-        if fresh is not None:
-            work.model, work.params = fresh.model, fresh.params
-        await self._store.save_session(work)
         notices = "".join(f"⚠️ {n}\n" for n in outcome.notices)
-        if isinstance(outcome, turn.Answer):
-            if outcome.text or notices:
-                await self._sender.send(target, notices + outcome.text)
-        else:
-            q = outcome.question
-            ids = await self._sender.send(
-                target, notices + q.text, reply_markup=card_markup(list(q.options), with_other=not q.is_approval)
-            )
-            work.pending.card_message_id = ids[0]
+        try:
+            # The reply is sent before the session is saved, so the stored history only ever holds what
+            # the user was shown.
+            if isinstance(outcome, turn.Answer):
+                if outcome.text or notices:
+                    await self._sender.send(target, notices + outcome.text)
+            else:
+                q = outcome.question
+                ids = await self._sender.send(
+                    target, notices + q.text, reply_markup=card_markup(list(q.options), with_other=not q.is_approval)
+                )
+                work.pending.card_message_id = ids[0]
+            fresh = await self._store.load_session(key)  # settings changed during the turn win
+            if fresh is not None:
+                work.model, work.params = fresh.model, fresh.params
             await self._store.save_session(work)
-        await self._unmark([j.target for j in jobs])
+        finally:
+            await self._unmark([j.target for j in jobs])
 
     # -- chrome --------------------------------------------------------------------------------
     async def _typing(self, target: Target) -> None:
