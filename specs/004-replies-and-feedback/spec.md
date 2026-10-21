@@ -99,8 +99,8 @@ Flood limits, a missing topic and a missing replied message do not stop an answe
 ### Edge Cases
 
 - Reply notices from the endpoint (an unsupported tool, the round limit) are added in front of the answer, one per line, each starting `⚠️ `; with no answer text the notices alone are sent.
-- A message that Telegram refuses for any other reason is not retried; the turn fails and the user sees nothing (see KD-001).
-- Reaction marks are kept in memory; a restart during a turn leaves the 👀 on the message (see GAP-001).
+- A message that Telegram refuses for any other reason, or a send that timed out (it may have arrived), is not retried; the turn fails, nothing is saved to the history, and the user sees nothing.
+- When the bot is stopped, the 👀 of waiting messages is removed and each affected chat is told once to send its message again (capability 006).
 - Edits of an unchanged message are ignored.
 - Single-asterisk italics are not turned back to plain in the plain-text fallback.
 
@@ -129,6 +129,7 @@ Flood limits, a missing topic and a missing replied message do not stop an answe
 - **FR-019**: System MUST store the plain text of every message it sends, by chat and message id.
 - **FR-020**: System MUST NOT send a message with no text.
 - **FR-021**: System MUST apply the same formatting and fallbacks when it edits one of its messages, and ignore an edit that changes nothing.
+- **FR-022**: System MUST retry a send that failed because the connection to Telegram could not be made, after 1, 2, 4 and 8 seconds, within the same 5 attempts, and MUST NOT retry a send that timed out.
 
 ### Key Entities
 
@@ -151,4 +152,4 @@ Flood limits, a missing topic and a missing replied message do not stop an answe
 
 ## Known Defects and Gaps
 
-The defects KD-001 (an unseen answer is saved, see capability 002) and the gap GAP-001 (the 👀 stays after a restart) also affect this capability.
+None.

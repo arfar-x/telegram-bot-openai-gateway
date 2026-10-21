@@ -22,7 +22,7 @@ A turn is a pure use case over ports: take the stored session, add the user's me
 
 **Performance Goals**: not stated by the code
 
-**Constraints**: at most 8 endpoint calls per turn; request timeout 600 s by default; connection 10 s; one process, state held in memory only for batching, queueing and running turns
+**Constraints**: at most 8 endpoint calls per turn; request timeout 600 s in all by default; connection 10 s; history of at most 200,000 characters; two running turns per person; one process, state held in memory only for batching, queueing and running turns
 
 **Scale/Scope**: not stated by the code
 
@@ -39,6 +39,7 @@ A turn is a pure use case over ports: take the stored session, add the user's me
 domain/content.py        message content, merging, image dropping
 domain/settings.py       setting names, ranges, parsing
 domain/session.py        session key, topic id rules
+domain/history.py        keeping the history within its budget
 domain/prompt.py         the system note
 application/turn.py      begin (open question, history), run (rounds)
 application/commands.py  setting changes and the /settings text
@@ -56,7 +57,10 @@ adapters/outbound/postgres.py          sessions
 | `OPENAI_BASE_URL` | none (required) | The endpoint |
 | `OPENAI_API_KEY` | empty | Used only to list models before a user is linked |
 | `DEFAULT_MODEL` | none (required) | The model a session uses until the user sets one |
-| `REQUEST_TIMEOUT` | 600 | Seconds without data before a request is abandoned |
+| `REQUEST_TIMEOUT` | 600 | Seconds a request to the endpoint may take in all |
+| `HISTORY_MAX_CHARS` | 200000 | History sent with each request |
+| `MAX_CONCURRENT_TURNS` | 2 | Turns one person may have running at once |
+| `MESSAGE_TEXT_DAYS` | 30 | Days message texts are kept |
 | `SHOW_PROGRESS` | false | Shows the endpoint's reasoning while it works (capability 004) |
 
 Fixed values: 8 rounds per turn; 40 model buttons; 86,400 s lifetime of an open question; 10 s connection timeout.

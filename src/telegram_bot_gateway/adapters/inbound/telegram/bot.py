@@ -20,7 +20,7 @@ from telegram_bot_gateway.adapters.inbound.telegram.runtime import LINK_PROMPT, 
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender, Target
 from telegram_bot_gateway.adapters.outbound.openai import EndpointError
 from telegram_bot_gateway.application import commands, linking
-from telegram_bot_gateway.application.model import Session
+from telegram_bot_gateway.application.model import PENDING_TTL_SECONDS, Session
 from telegram_bot_gateway.application.ports import Llm, Store, Vault
 from telegram_bot_gateway.config import Settings
 from telegram_bot_gateway.domain import batching, content, settings
@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 GROUP_NOTICE_INTERVAL = 600
 SEEN_UPDATES = 4096
 MODEL_BUTTONS = 40
+KNOWN_BOTS = 512
 HELP = (
     "Send me a message and I answer it with your own account.\n\n"
     "/new  start a fresh conversation\n/stop  cancel what I am working on\n"
@@ -89,13 +90,30 @@ def real_reply(message: Message) -> Message | None:
     return reply
 
 
+_known_bots: OrderedDict[str, None] = OrderedDict()  # usernames of bots seen in this process, lower case
+
+
+def _remember_bots(message: Message) -> None:
+    """Telegram does not say whether a plain @name is a bot, so learn the names of bots from what they send."""
+    people = [message.from_user, message.reply_to_message.from_user if message.reply_to_message else None]
+    if message.via_bot is not None:
+        people.append(message.via_bot)
+    for person in people:
+        if person is not None and person.is_bot and person.username:
+            _known_bots[f"@{person.username}".lower()] = None
+            _known_bots.move_to_end(f"@{person.username}".lower())
+    while len(_known_bots) > KNOWN_BOTS:
+        _known_bots.popitem(last=False)
+
+
 def _flags(message: Message, bot_id: int, username: str) -> Incoming:
+    _remember_bots(message)
     entities = message.parse_entities(["mention", "text_mention"]) or message.parse_caption_entities(["mention", "text_mention"])
     mentions = [e for e in entities.items()]
     ours = f"@{username}".lower()
     mentions_bot = any((e.user and e.user.id == bot_id) or t.lower() == ours for e, t in mentions)
     other_bots = any(
-        (e.user and e.user.is_bot and e.user.id != bot_id) or (e.type == "mention" and t.lower().endswith("bot") and t.lower() != ours)
+        (e.user and e.user.is_bot and e.user.id != bot_id) or (e.type == "mention" and t.lower() != ours and t.lower() in _known_bots)
         for e, t in mentions
     )
     reply = real_reply(message)
@@ -211,7 +229,13 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     deps, where = got
     await deps.runtime.stop(where.key)
+    session = await deps.store.load_session(where.key)
     await deps.store.delete_session(where.key)
+    if session is not None and session.pending is not None and session.pending.card_message_id is not None:
+        try:  # the card is no longer open: say so on it, so its buttons are not left looking live
+            await deps.sender.edit(session.pending.chat_id, session.pending.card_message_id, f"{session.pending.question}\n\n✖ Cancelled")
+        except Exception:
+            log.debug("could not update the card of a question that was cancelled", exc_info=True)
     await deps.sender.send(where.target, "Started a new conversation.")
 
 
@@ -308,12 +332,15 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     deps, where = got
     key = await linking.api_key_for(deps.store, deps.vault, where.user_id) or deps.config.openai_api_key
     try:
-        models = (await deps.llm.models(key))[:MODEL_BUTTONS]
+        every = await deps.llm.models(key)
     except EndpointError as exc:
         await deps.sender.send(where.target, str(exc))
         return
+    models = every[:MODEL_BUTTONS]
     markup = InlineKeyboardMarkup([[InlineKeyboardButton(m, callback_data=f"m:{i}")] for i, m in enumerate(models)])
-    await deps.sender.send(where.target, "Choose a model:", reply_markup=markup)
+    heading = "Choose a model:" if len(every) <= MODEL_BUTTONS else (
+        f"Choose a model (showing {MODEL_BUTTONS} of {len(every)}; send /model <name> for any other):")
+    await deps.sender.send(where.target, heading, reply_markup=markup)
 
 
 # -- buttons -----------------------------------------------------------------------------------
@@ -357,6 +384,10 @@ async def _on_answer(query, deps: Deps, value: str) -> None:
         return
     if query.from_user.id != session.telegram_user_id:
         await query.answer("This question is not yours.", show_alert=True)
+        return
+    if time.time() - session.pending.created_at > PENDING_TTL_SECONDS:
+        await query.answer("This question has expired.", show_alert=True)
+        await deps.sender.edit(message.chat.id, message.message_id, f"{session.pending.question}\n\n⌛ Expired")
         return
     if value == "o":
         await query.answer("Send your answer as a message.")

@@ -94,6 +94,9 @@ class PostgresStore:
     async def delete_pairing(self, code: str) -> None:
         await self._run("DELETE FROM pairing_codes WHERE code = %s", (code,))
 
+    async def prune_pairings(self, *, before: float) -> int:
+        return await self._run("DELETE FROM pairing_codes WHERE created_at < %s", (before,))
+
     # sessions
     async def load_session(self, key: str) -> Session | None:
         rows = await self._rows("SELECT * FROM sessions WHERE key = %s", (key,))
@@ -129,6 +132,9 @@ class PostgresStore:
             "ON CONFLICT (chat_id, message_id) DO UPDATE SET text = EXCLUDED.text",
             (chat_id, message_id, text),
         )
+
+    async def prune_texts(self, *, older_than_days: int) -> int:
+        return await self._run("DELETE FROM message_texts WHERE created_at < now() - make_interval(days => %s)", (older_than_days,))
 
     async def get_text(self, chat_id: int, message_id: int) -> str | None:
         rows = await self._rows("SELECT text FROM message_texts WHERE chat_id = %s AND message_id = %s", (chat_id, message_id))

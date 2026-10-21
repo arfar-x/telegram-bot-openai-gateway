@@ -89,11 +89,11 @@ The operator removes a link by Telegram id or by username, and the user's sessio
 
 - A code is made of 8 characters drawn from the letters A–Z without I and O and the digits 2–9. Two users cannot hold the same code; a clash is not handled (the creation fails).
 - The username in a request is free text, taken as the words after `/start` joined by single spaces. It is not checked against the endpoint.
-- Expired codes are not removed from storage; they are ignored by every rule above.
+- Expired codes are deleted: at the next pairing request, and by a daily clean-up.
 - Approving a code does not check that the key works.
 - If the user cannot be told that they are linked (no bot token in the operator's environment, or Telegram refuses), the link is still made; the operator sees "linked, but the user could not be notified" only when sending was attempted and failed.
 - The notice for unlinked group users is remembered in memory only; after a restart it can repeat sooner.
-- A stored key that cannot be decrypted with the configured key makes that user's turns fail (see GAP-008).
+- A stored key that cannot be decrypted with the configured key is reported to the user as a link that must be renewed.
 
 ## Requirements *(mandatory)*
 
@@ -117,6 +117,8 @@ The operator removes a link by Telegram id or by username, and the user's sessio
 - **FR-016**: System MUST tell an unlinked user in a private chat how to link on every message or gated command, and an unlinked user in a group at most once per 600 seconds per user.
 - **FR-017**: System MUST re-check the link when a queued message's turn starts, and MUST answer with the linking reply instead of calling the endpoint when the link is gone.
 - **FR-018**: System MUST answer `/whoami` with three lines: the Telegram id, `linked as <username>` or `not linked`, and the session key, and MUST NOT include an API key.
+- **FR-019**: System MUST delete pairing codes that are 3,600 seconds old or older when it handles the next pairing request, and in the daily clean-up.
+- **FR-020**: System MUST answer a turn of a user whose stored key cannot be decrypted with "Your link can no longer be read. Ask the operator to link you again.", and write the failure to its log.
 
 ### Key Entities
 
@@ -141,7 +143,4 @@ The operator removes a link by Telegram id or by username, and the user's sessio
 
 ## Known Defects and Gaps
 
-### Gaps
-
-- **GAP-007** (User Story 1): Pairing codes older than one hour are never deleted. Status: Scheduled for the next task.
-- **GAP-008** (User Story 3): When a stored key cannot be decrypted with the configured key, every turn of that user fails and the user receives no reply. Status: Scheduled for the next task.
+None.

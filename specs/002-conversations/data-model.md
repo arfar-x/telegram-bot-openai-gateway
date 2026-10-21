@@ -34,7 +34,7 @@ Storage is the bot's own database. This file owns the Session and the stored mes
 | chat id | integer (64-bit) | Part of the primary key. |
 | message id | integer (64-bit) | Part of the primary key. |
 | text | text | The message text, or the text built from it. Saving the same message again replaces the text. |
-| created at | timestamp with time zone | Default now. Never used to delete rows. |
+| created at | timestamp with time zone | Default now. Rows older than the configured number of days (default 30) are deleted. |
 
 ## State transitions
 

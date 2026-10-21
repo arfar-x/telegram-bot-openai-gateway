@@ -76,8 +76,8 @@ A card that is no longer open, or that belongs to someone else, does nothing.
 
 - An unrecognised choice index in a button gives the alert "Unknown choice."
 - A second `clarify` call in the same round is answered "This client cannot run that tool." (see capability 002); only the first becomes a card.
-- A card tapped more than 24 hours after it was sent is still accepted by the tap, and then handled as a new message holding only the label (see KD-004).
-- After `/new` the old card stays on screen (see GAP-005).
+- A card tapped more than 24 hours after it was sent is refused with the alert "This question has expired.", and its text is changed to the question followed by `⌛ Expired`.
+- `/new` changes the text of an open card to the question followed by `✖ Cancelled`, and removes its buttons.
 - Arguments that are not valid JSON become the question text, with no choices.
 
 ## Requirements *(mandatory)*
@@ -96,6 +96,8 @@ A card that is no longer open, or that belongs to someone else, does nothing.
 - **FR-010**: System MUST drop a question 86,400 seconds after it was created, at the owner's next message, together with the assistant message that asked it and the tool messages after it, edit its card to `<question>` and `⌛ Expired`, and handle the message as new.
 - **FR-011**: System MUST keep an open question across restarts, as part of the session.
 - **FR-012**: System MUST allow at most one open question per session.
+- **FR-013**: System MUST, on a tap by the owner of a question older than 86,400 seconds, answer with the alert "This question has expired.", change the card to `<question>` and `⌛ Expired`, and send nothing to the endpoint.
+- **FR-014**: System MUST, on `/new`, change an open card to `<question>` and `✖ Cancelled` without buttons, and ignore a failure to do so.
 
 ### Key Entities
 
@@ -117,10 +119,4 @@ A card that is no longer open, or that belongs to someone else, does nothing.
 
 ## Known Defects and Gaps
 
-### Defects
-
-- **KD-004** (FR-010): A card tapped more than 24 hours after it was sent is accepted at the tap, then handled as a brand-new message that holds only the button label, with no question context, because the stale question is dropped when the turn starts. Expected: the tap is refused as expired. Status: Scheduled for the next task.
-
-### Gaps
-
-- **GAP-005** (User Story 4): `/new` deletes the session but leaves an open card on screen; tapping it later says the question is no longer open. Status: Scheduled for the next task.
+None.

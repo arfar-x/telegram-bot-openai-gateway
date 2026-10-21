@@ -40,6 +40,12 @@ class FakeStore:
     async def pairings_of(self, uid): return [p for p in self.pairings.values() if p.telegram_user_id == uid]
     async def list_pairings(self, *, since): return [p for p in self.pairings.values() if p.created_at >= since]
     async def delete_pairing(self, code): self.pairings.pop(code, None)
+
+    async def prune_pairings(self, *, before):
+        gone = [c for c, p in self.pairings.items() if p.created_at < before]
+        for c in gone:
+            del self.pairings[c]
+        return len(gone)
     async def load_session(self, key): return copy.deepcopy(self.sessions.get(key))
     async def save_session(self, s): self.sessions[s.key] = copy.deepcopy(s)
     async def delete_session(self, key): self.sessions.pop(key, None)
@@ -57,6 +63,7 @@ class FakeStore:
 
     async def save_text(self, chat_id, message_id, text): self.texts[(chat_id, message_id)] = text
     async def get_text(self, chat_id, message_id): return self.texts.get((chat_id, message_id))
+    async def prune_texts(self, *, older_than_days): return 0
 
 
 class ScriptedLlm:

@@ -10,6 +10,9 @@ from telegram_bot_gateway.application.model import PENDING_TTL_SECONDS, Pending,
 from telegram_bot_gateway.application.ports import Llm, ReasoningSink
 from telegram_bot_gateway.domain import clarify
 from telegram_bot_gateway.domain.content import drop_images, text_of
+from telegram_bot_gateway.domain.history import trim
+
+DEFAULT_HISTORY_MAX_CHARS = 200_000
 
 MAX_ROUNDS = 8
 UNSUPPORTED_TOOL = "This client cannot run that tool."
@@ -31,7 +34,9 @@ class Ask:
 Outcome = Answer | Ask
 
 
-def begin(session: Session, content: str | list[dict[str, Any]], *, now: float) -> tuple[Session, Pending | None]:
+def begin(
+    session: Session, content: str | list[dict[str, Any]], *, now: float, max_chars: int = DEFAULT_HISTORY_MAX_CHARS
+) -> tuple[Session, Pending | None]:
     """A copy of the session with the user's message added, and any question that went stale.
 
     A message sent while a question is open answers it; a question older than a day is dropped
@@ -54,6 +59,7 @@ def begin(session: Session, content: str | list[dict[str, Any]], *, now: float) 
     else:
         work.messages = drop_images(work.messages)
         work.messages.append({"role": "user", "content": content})
+    work.messages = trim(work.messages, max_chars)
     return work, stale
 
 

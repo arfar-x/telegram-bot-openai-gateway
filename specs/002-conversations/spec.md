@@ -95,7 +95,7 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 **Acceptance Scenarios**:
 
 1. **Given** the endpoint answers an error status, **When** the turn ends, **Then** the user sees "The endpoint answered <status>: <message>" (or "no details"), and the history is unchanged.
-2. **Given** the endpoint sends no data for the request timeout, **When** the timeout passes, **Then** the user sees "The endpoint took too long to answer."
+2. **Given** a request that has not finished within the request timeout, **When** the timeout passes, **Then** the user sees "The endpoint took too long to answer."
 3. **Given** the endpoint cannot be reached, **When** the turn runs, **Then** the user sees "Could not reach the endpoint: <error name>".
 4. **Given** an unexpected failure, **When** the turn runs, **Then** the user sees "Something went wrong while answering. Please try again." and the history is unchanged.
 
@@ -107,8 +107,8 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 - A group member's commands change only their own session.
 - A message whose content has no text and no images is ignored before it reaches a session.
 - A parameter the endpoint refuses (for example one an agent locks) is not checked by the bot; the endpoint's error is shown unchanged.
-- `/unset reasoning_effort` is accepted, although `/set reasoning_effort` is refused (see KD-006).
-- The model list is cut at 40 entries without saying so (see KD-007).
+- `reasoning_effort` is set with `/set` as well as with `/reasoning`, and removed with `/unset`.
+- A model list longer than 40 entries shows the first 40 and says how many there are.
 
 ## Requirements *(mandatory)*
 
@@ -121,11 +121,11 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 - **FR-005**: System MUST stop a turn after at most 8 calls to the endpoint, with the notice "Stopped: the endpoint kept calling tools." and an empty answer.
 - **FR-006**: System MUST answer every tool call other than the first `clarify` call of a round with the text "This client cannot run that tool." and add the notice "The endpoint asked for an unsupported tool: <name>" to the reply.
 - **FR-007**: System MUST end a turn with the text of the endpoint's last message when it has no tool calls; an answer with no text and no notice sends nothing.
-- **FR-008**: System MUST save the session after a turn succeeds and before the reply is sent, and MUST take the model and settings from storage at that moment, so changes made during the turn are kept.
+- **FR-008**: System MUST save the session after a turn succeeds and after its reply has been sent, so the stored history holds only what the user was shown, and MUST take the model and settings from storage at that moment, so changes made during the turn are kept.
 - **FR-009**: System MUST, when a turn fails or is cancelled, leave the stored history exactly as it was before the turn.
 - **FR-010**: System MUST show an endpoint failure as one message: "The endpoint answered <status>: <message>" for an error status (with "no details" when the body has none), "The endpoint failed: <message>" for an error inside the stream, "The endpoint took too long to answer." on a timeout, "Could not reach the endpoint: <error name>" for any other transport failure.
 - **FR-011**: System MUST show "Something went wrong while answering. Please try again." for any other failure of a turn, and write the failure to its log.
-- **FR-012**: System MUST give up on a request when the endpoint sends no data for the configured request timeout (default 600 seconds) while connected or while sending, and on the connection after 10 seconds. The timeout restarts with every piece of data received.
+- **FR-012**: System MUST give up on a request that has not finished within the configured request timeout (default 600 seconds) in all, however slowly data arrives, and on the connection after 10 seconds.
 - **FR-013**: System MUST merge the messages of one turn into one: texts joined by a line break, images added after the text.
 - **FR-014**: System MUST queue messages that arrive while the session has a turn running, and run them as one turn after it.
 - **FR-015**: System MUST run turns of different sessions at the same time and turns of one session in order.
@@ -134,14 +134,17 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 - **FR-018**: System MUST keep a session without expiry, and keep history and settings across restarts.
 - **FR-019**: System MUST give every session key a separate session: the chat, the topic when there is one, and the user when the chat is not private.
 - **FR-020**: System MUST act on the sender's own session for every command, including in groups.
-- **FR-021**: System MUST let a user set the model by name without checking it, and show the endpoint's models (at most 40) as buttons when no name is given.
+- **FR-021**: System MUST let a user set the model by name without checking it, and show the endpoint's models (at most 40) as buttons when no name is given, saying `showing 40 of <n>` and how to name another when there are more.
 - **FR-022**: System MUST let a user set the reasoning effort to one of none, minimal, low, medium or high, or remove it with `default`, and show those six as buttons when no value is given.
-- **FR-023**: System MUST accept these settings, each in its range: temperature (0 to 2), top_p (0 to 1), max_tokens (whole number, at least 1), seed (any whole number), verbosity (low, medium, high), presence_penalty and frequency_penalty (-2 to 2), and stop (text, or a list of one to four texts written as JSON).
+- **FR-023**: System MUST accept these settings, each in its range: temperature (0 to 2), top_p (0 to 1), max_tokens (whole number, at least 1), seed (any whole number), verbosity (low, medium, high), presence_penalty and frequency_penalty (-2 to 2), stop (text, or a list of one to four texts written as JSON), and reasoning_effort (none, minimal, low, medium, high).
 - **FR-024**: System MUST refuse an unknown name, a missing value, a value of the wrong type and a value out of range with a reply that names the problem, and store nothing.
 - **FR-025**: System MUST send the stored settings with every request of the session.
 - **FR-026**: System MUST show `/settings` as the model (marked default when not set) followed by one line per setting in effect, or "no other settings; the endpoint's defaults apply", with a Reset button that clears the model and all settings.
 - **FR-027**: System MUST show every setting change as a reply of the form `<name> = <value>`, `reasoning = <level>`, `model = <name>`, or "<name> reset to the endpoint's default".
 - **FR-028**: System MUST answer `/help` with the help text and every command with the replies listed in `contracts/commands.md`.
+- **FR-029**: System MUST keep the history sent to the endpoint within the configured number of characters of text (default 200,000) by dropping the oldest whole turns, never separating a tool call from its answer and never dropping the turn being answered, which carries an open question when there is one.
+- **FR-030**: System MUST let one person have at most the configured number of turns running at once across all chats (default 2); further turns wait for a free place.
+- **FR-031**: System MUST delete the stored text of messages after the configured number of days (default 30), at start and daily; a reply to a message whose text is gone is quoted from what Telegram attaches to the reply.
 
 ### Key Entities
 
@@ -153,7 +156,7 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 ### Measurable Outcomes
 
 - **SC-001**: A turn makes at most 8 requests to the endpoint.
-- **SC-002**: A request with no data arriving is abandoned after 600 seconds by default; a connection after 10 seconds.
+- **SC-002**: A request is abandoned after 600 seconds in all by default; a connection after 10 seconds.
 - **SC-003**: A failed or cancelled turn changes the stored history by exactly zero messages.
 - **SC-004**: `/model` shows at most 40 models.
 - **SC-005**: Messages sent during a turn cause zero extra requests until that turn ends, and exactly one request for all of them afterwards.
@@ -165,16 +168,4 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 
 ## Known Defects and Gaps
 
-### Defects
-
-- **KD-001** (FR-008): The reply is saved to the history before it is sent. When sending fails with a network error, the user never sees the answer, and the next message continues as if they had. Expected: the history holds only what the user was shown, or the send is retried. Status: Scheduled for the next task.
-- **KD-003** (FR-001): The history grows without limit; no part is dropped or summarised. A long session eventually exceeds the model's context and every turn fails until the user sends `/new`. Expected: the history is kept within the model's context. Status: Scheduled for the next task.
-- **KD-008** (FR-012): The request timeout applies to each wait for data, not to the whole request, so an endpoint that keeps sending data slowly is never abandoned. The module's earlier spec states that a request must not outlive the timeout. Expected: a request ends once the timeout has passed since it started. Status: Scheduled for the next task.
-- **KD-006** (FR-023): `/unset reasoning_effort` is accepted, but `/set reasoning_effort` is refused with the unknown-setting reply; the effort is set with `/reasoning` only. Expected: the same names work for set and unset. Status: Scheduled for the next task.
-- **KD-007** (FR-021): `/model` cuts the list at 40 entries without saying so. Expected: the user is told when the list is longer. Status: Scheduled for the next task.
-
-### Gaps
-
-- **GAP-001** (User Story 2): A message accepted before a restart and not yet answered (merging, queued or running) is never answered, and the user is not told. Status: Scheduled for the next task.
-- **GAP-003** (User Story 1): Stored message texts are never deleted. Status: Scheduled for the next task.
-- **GAP-006** (User Story 2): Nothing limits how many requests one user can have running against the endpoint at once across chats. Status: Scheduled for the next task.
+None.

@@ -75,3 +75,15 @@ async def test_pairing_codes_and_message_texts(store):
     await store.save_text(1, 2, "hello")
     await store.save_text(1, 2, "hello again")
     assert await store.get_text(1, 2) == "hello again" and await store.get_text(1, 3) is None
+
+
+async def test_old_message_texts_and_expired_codes_can_be_pruned(store):
+    await store.save_text(1, 1, "old")
+    await store.save_text(1, 2, "new")
+    await store._run("UPDATE message_texts SET created_at = now() - interval '40 days' WHERE message_id = 1")
+    assert await store.prune_texts(older_than_days=30) == 1
+    assert await store.get_text(1, 1) is None and await store.get_text(1, 2) == "new"
+    await store.create_pairing(PairingRequest("OLD00000", 5, "a", "A", 5, 10.0))
+    await store.create_pairing(PairingRequest("NEW00000", 5, "a", "A", 5, 5000.0))
+    assert await store.prune_pairings(before=1000.0) == 1
+    assert await store.get_pairing("OLD00000") is None and await store.get_pairing("NEW00000") is not None

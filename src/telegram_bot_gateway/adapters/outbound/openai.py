@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -17,6 +18,7 @@ class EndpointError(Exception):
 class OpenAIChat:
     def __init__(self, base_url: str, timeout: float, client: httpx.AsyncClient | None = None) -> None:
         self._base = base_url.rstrip("/")
+        self._deadline = timeout
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10))
 
     async def close(self) -> None:
@@ -48,35 +50,36 @@ class OpenAIChat:
         calls: dict[int, dict[str, Any]] = {}
         reasoning: list[str] = []
         try:
-            async with self._client.stream(
-                "POST", f"{self._base}/chat/completions", json=body, headers=self._headers(api_key)
-            ) as response:
-                if response.status_code >= 400:
-                    raise EndpointError(_error_text(response.status_code, (await response.aread()).decode(errors="replace")))
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        break
-                    event = json.loads(payload)
-                    if "error" in event:
-                        raise EndpointError(_error_text(0, json.dumps(event)))
-                    for choice in event.get("choices", []):
-                        delta = choice.get("delta") or {}
-                        if delta.get("content"):
-                            content.append(delta["content"])
-                        if delta.get("reasoning_content"):
-                            reasoning.append(delta["reasoning_content"])
-                            if on_reasoning:
-                                await on_reasoning("".join(reasoning))
-                        for piece in delta.get("tool_calls") or []:
-                            call = calls.setdefault(piece.get("index", 0), {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-                            call["id"] = piece.get("id") or call["id"]
-                            fn = piece.get("function") or {}
-                            call["function"]["name"] += fn.get("name") or ""
-                            call["function"]["arguments"] += fn.get("arguments") or ""
-        except httpx.TimeoutException as exc:
+            async with asyncio.timeout(self._deadline):  # the whole request, however slowly data trickles in
+                async with self._client.stream(
+                    "POST", f"{self._base}/chat/completions", json=body, headers=self._headers(api_key)
+                ) as response:
+                    if response.status_code >= 400:
+                        raise EndpointError(_error_text(response.status_code, (await response.aread()).decode(errors="replace")))
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        event = json.loads(payload)
+                        if "error" in event:
+                            raise EndpointError(_error_text(0, json.dumps(event)))
+                        for choice in event.get("choices", []):
+                            delta = choice.get("delta") or {}
+                            if delta.get("content"):
+                                content.append(delta["content"])
+                            if delta.get("reasoning_content"):
+                                reasoning.append(delta["reasoning_content"])
+                                if on_reasoning:
+                                    await on_reasoning("".join(reasoning))
+                            for piece in delta.get("tool_calls") or []:
+                                call = calls.setdefault(piece.get("index", 0), {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                                call["id"] = piece.get("id") or call["id"]
+                                fn = piece.get("function") or {}
+                                call["function"]["name"] += fn.get("name") or ""
+                                call["function"]["arguments"] += fn.get("arguments") or ""
+        except (TimeoutError, httpx.TimeoutException) as exc:
             raise EndpointError("The endpoint took too long to answer.") from exc
         except httpx.HTTPError as exc:
             raise EndpointError(f"Could not reach the endpoint: {exc.__class__.__name__}") from exc

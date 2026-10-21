@@ -119,7 +119,7 @@ In a forum group or a private chat with topics, each topic has its own session a
 
 - A voice note sent by an unlinked user is also refused with the voice reply, before the linking reply.
 - A trigger whose content has no text and no image (for example an empty caption on an unsupported item) is ignored.
-- A message that mentions a person whose username ends in "bot" is taken as addressed to another bot (see KD-005).
+- A message that mentions a person is not taken as addressed to another bot, however the person's username ends; a username counts as a bot's only once that bot has sent something the bot has seen.
 - Commands are not triggers: they are handled by their own handlers (capabilities 001 and 002).
 - Only new messages and button taps are received; channel posts, edited messages and inline queries are not.
 - A long text that the app split into several messages arrives as separate messages. A part of at least 4,000 characters is followed by a 1.0-second wait, so the next part joins it; the wait after each part depends on that part's own length.
@@ -134,7 +134,7 @@ In a forum group or a private chat with topics, each topic has its own session a
 - **FR-004**: System MUST NOT treat a group message as a trigger when it mentions another bot and does not mention this bot.
 - **FR-005**: System MUST NOT treat a message sent by a bot as a trigger.
 - **FR-006**: System MUST detect a mention of this bot as an `@username` equal to its username without regard to letter case, or a text mention of its user id, in the text or, when there is no text, in the caption.
-- **FR-007**: System MUST detect a mention of another bot as a text mention of another bot's user id, or an `@name` ending in "bot" that is not this bot's username.
+- **FR-007**: System MUST detect a mention of another bot as a text mention of another bot's user id, or an `@name` that is the username of a bot this process has seen (as the sender of a message, the sender of a message replied to, or the bot a message was sent through), remembering at most 512 such names.
 - **FR-008**: System MUST regard a message as a reply only when it replies to a message that is neither a forum topic's opening message nor the message whose id is the topic id.
 - **FR-009**: System MUST refuse a triggering voice note, audio file or video note with "Voice notes are not supported yet; please type your message.", before any check of the link, and MUST NOT queue it.
 - **FR-010**: System MUST use the message's text, or its caption when there is no text, and in a group MUST remove every `@<username>` of this bot (any letter case, whole word) and trim the result when the message mentions no other bot.
@@ -173,6 +173,4 @@ In a forum group or a private chat with topics, each topic has its own session a
 
 ## Known Defects and Gaps
 
-### Defects
-
-- **KD-005** (FR-007): Any `@name` ending in "bot" that is not this bot counts as another bot. A person whose username ends in "bot" cannot be mentioned together with a request to this bot without silencing it (when this bot is not mentioned too). Expected: another bot is recognised as a bot. Status: Scheduled for the next task; the corrected rule needs a decision, because Telegram does not say whether a plain `@name` belongs to a bot.
+None.

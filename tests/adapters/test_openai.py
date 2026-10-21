@@ -5,6 +5,7 @@ import pytest
 
 from telegram_bot_gateway.adapters.outbound.openai import EndpointError, OpenAIChat
 
+# Regression test for KD-008 at the end of this file.
 # Covers: FR-TRN-01, FR-TRN-02, FR-TRN-06, FR-TRN-07, FR-OUT-09, FR-CMD-06
 
 
@@ -74,3 +75,19 @@ async def test_a_mid_stream_error_and_a_timeout_are_reported():
 
 async def test_models_are_listed():
     assert await client(lambda r: httpx.Response(200, json={"data": [{"id": "a"}, {"id": "b"}]})).models("k") == ["a", "b"]
+
+
+async def test_kd008_a_request_that_keeps_trickling_data_still_ends_at_the_deadline():
+    import asyncio
+    import time
+
+    async def trickle():
+        for _ in range(200):
+            yield b'data: {"choices": [{"delta": {"content": "x"}}]}\n\n'
+            await asyncio.sleep(0.05)
+
+    chat = OpenAIChat("http://llm/v1", 0.3, httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=trickle()))))
+    started = time.monotonic()
+    with pytest.raises(EndpointError, match="too long"):
+        await chat.chat("k", "m", [], {}, [])
+    assert time.monotonic() - started < 2

@@ -1,0 +1,10 @@
+# Opt-in addition for webhook mode. The bot listens on WEBHOOK_PORT inside its container; this publishes
+# that port on the loopback interface only, for a reverse proxy on the same host that terminates HTTPS and
+# forwards Telegram's calls to it. Telegram only delivers to an HTTPS address, so WEBHOOK_URL must be the
+# public address of that proxy.
+#
+#   docker compose -f compose.yaml -f compose.webhook.yaml up -d
+services:
+  bot:
+    ports:
+      - "127.0.0.1:${WEBHOOK_PORT:-8443}:${WEBHOOK_PORT:-8443}"

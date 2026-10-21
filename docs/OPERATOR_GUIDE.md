@@ -42,10 +42,16 @@ the message is shown unchanged.
 |---|---|
 | `REACTIONS` | A 👀 on a message only when it is worth it: it waits behind a running turn, or its answer takes longer than `REACTION_DELAY` seconds (default 10). Removed once answered. Default on. |
 | `SHOW_PROGRESS` | Show the endpoint's reasoning as one silent message, edited in place and removed after the answer (default off). |
-| `REQUEST_TIMEOUT` | Seconds without data from the endpoint before a request is abandoned. |
-| `WEBHOOK_URL`, `WEBHOOK_SECRET` | Webhook instead of long polling; the secret is mandatory with the URL. The container listens on `WEBHOOK_PORT` (8443) but the compose file publishes nothing, so put your own HTTPS front end in front of it and add the port mapping you need. |
+| `REQUEST_TIMEOUT` | Seconds a request to the endpoint may take in all. |
+| `HISTORY_MAX_CHARS` | History sent with each request (default 200,000 characters). Past it the oldest whole turns are dropped, so a very long session keeps working but forgets its beginning. `/new` clears it. |
+| `MESSAGE_TEXT_DAYS` | Days the text of messages is kept for quoting replies (default 30). |
+| `MAX_CONCURRENT_TURNS` | Turns one person may have running at once across chats (default 2); more wait their turn. |
+| `TELEGRAM_PROXY`, `TELEGRAM_CONNECT_TIMEOUT`, `TELEGRAM_READ_TIMEOUT` | For a slow or filtered route to Telegram: a proxy URL, and the connection and read timeouts in seconds (defaults 20 and 30). |
+| `WEBHOOK_URL`, `WEBHOOK_SECRET` | Webhook instead of long polling; the secret is mandatory with the URL. The container listens on `WEBHOOK_PORT` (8443). `docker compose -f compose.yaml -f compose.webhook.yaml up -d` publishes that port on the loopback interface only; put a reverse proxy that terminates HTTPS in front of it and set `WEBHOOK_URL` to the proxy's public address. |
 
 A change to `.env` takes effect after `make restart`.
+
+When the bot stops, each chat with a message it had not answered gets one quiet message asking to send it again, and the 👀 it set is removed.
 
 ## Backup and restore
 
@@ -69,4 +75,4 @@ linked again.
   sends; see [the endpoint contract](../specs/002-conversations/contracts/endpoint.md).
 - **Container unhealthy:** the bot writes a heartbeat file every 30 seconds; none means it is not running.
   `make logs` shows why (a wrong token or an unreachable database are the usual causes).
-- **Telegram unreachable from your network:** configure a proxy in the environment of the `bot` service.
+- **Telegram unreachable from your network:** set `TELEGRAM_PROXY` in `.env`, and raise `TELEGRAM_CONNECT_TIMEOUT` if connections time out.

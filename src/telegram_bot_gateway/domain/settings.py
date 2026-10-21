@@ -18,6 +18,7 @@ PARAMS: dict[str, tuple[str, float | None, float | None]] = {
     "presence_penalty": ("float", -2, 2),
     "frequency_penalty": ("float", -2, 2),
     "stop": ("stop", None, None),
+    "reasoning_effort": ("reasoning", None, None),
 }
 
 
@@ -29,6 +30,8 @@ def parse(name: str, raw: str) -> Any:
     raw = raw.strip()
     if not raw:
         raise ValueError(f"give a value for {name}")
+    if kind == "reasoning":
+        return parse_reasoning(raw)
     if kind == "choice":
         if raw.lower() not in VERBOSITIES:
             raise ValueError(f"{name} must be one of {', '.join(VERBOSITIES)}")
