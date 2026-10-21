@@ -1,0 +1,42 @@
+# Runs the bot with its own PostgreSQL. Nothing is published: the bot polls Telegram and calls the
+# OpenAI-compatible endpoint named in .env, and the database is reachable only from the bot.
+#
+#   make setup      create .env and fill the generated values
+#   make up         build and start
+name: telegram-bot-openai-gateway
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: telegram_bot
+      POSTGRES_USER: telegram_bot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run `make setup` to create .env}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telegram_bot -d telegram_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  bot:
+    build:
+      context: .
+    image: telegram-bot-openai-gateway
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    mem_limit: 256m
+
+volumes:
+  db_data:
