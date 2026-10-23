@@ -21,6 +21,13 @@ principles it follows.
 - **No allowlist.** Who may use the bot is decided by linking, not by a list of Telegram ids.
 - **Queue, never interrupt.** A running turn is cancelled only by `/stop`.
 - The service publishes no port and its database role reaches only its own database.
+- **Keep the changelog.** [`CHANGELOG.md`](CHANGELOG.md) follows Keep a Changelog 1.1.0 and Semantic
+  Versioning. Any change a user or operator can notice (behaviour, a command, a variable, a default, a
+  removed or fixed defect, a security fix) adds a line under `## [Unreleased]` in the same change, in the
+  group `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`. Write what changed for the
+  reader, not how; leave out refactors, tests and docs-only edits. A release moves `Unreleased` under a new
+  `## [x.y.z] - YYYY-MM-DD` heading, bumps `version` in `pyproject.toml` to match (breaking change: major;
+  new behaviour: minor; fix: patch), updates the compare links at the bottom, and is tagged `vX.Y.Z`.
 
 ## Specs
 
