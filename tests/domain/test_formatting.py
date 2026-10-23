@@ -12,6 +12,15 @@ def test_bold_italic_strike_and_headings():
     assert to_markdown_v2("# Title") == "*Title*"
 
 
+def test_underline_and_spoiler_marks():
+    assert to_markdown_v2("see <u>this</u> and ||the answer||") == r"see __this__ and ||the answer||"
+    assert to_markdown_v2("**<u>x</u>**") == "*__x__*"
+    assert to_markdown_v2("a || b") == r"a \|\| b"  # no partner
+    assert to_markdown_v2("a || b || c") == r"a \|\| b \|\| c"  # bars against spaces are not a mark
+    assert to_markdown_v2("`a||b||c`") == "`a||b||c`"
+    assert to_plain("<u>u</u> ||s|| `c`") == "u s c"
+
+
 def test_code_is_protected():
     assert to_markdown_v2("run `a_b*c`") == "run `a_b*c`"
     out = to_markdown_v2("```py\nx = 1 # *no*\n```")

@@ -89,6 +89,13 @@ async def test_the_note_is_shorter_for_groups():
     assert "group chat" in telegram_context("supergroup") and "group chat" not in telegram_context("private")
 
 
+async def test_the_note_asks_for_plain_text_with_marks_only_where_they_help():
+    from telegram_bot_gateway.domain.prompt import telegram_context
+    note = telegram_context("private")
+    assert "plain text by default" in note and "never decorate whole sentences" in note
+    assert "<u>underline</u>" in note and "||spoiler||" in note
+
+
 async def test_messages_arriving_together_become_one_turn():
     llm = ScriptedLlm(say("one"))
     bot, _, rt = await make(llm)

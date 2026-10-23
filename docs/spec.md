@@ -110,7 +110,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-TRN-05 | Different sessions MUST run concurrently; turns of one session MUST run in order. | done |
 | FR-TRN-06 | An endpoint error MUST be shown to the user with its message, and the history MUST stay as it was before the turn. | done |
 | FR-TRN-07 | A request MUST NOT outlive a configurable timeout (default 10 minutes). | done |
-| FR-TRN-08 | Every request MUST begin with a system message telling the model it is talking in Telegram: keep answers short unless asked, use only Telegram-friendly Markdown and a few emojis, do not name the sources of an answer unless asked, reply in the user's language, and shorter still in a group. The message MUST NOT be stored in the history. | done |
+| FR-TRN-08 | Every request MUST begin with a system message telling the model it is talking in Telegram: keep answers short unless asked, use only Telegram-friendly Markdown and a few emojis, with plain text as the default and each mark (bold, `code`, underline, spoiler, strike) only where it adds meaning, do not name the sources of an answer unless asked, reply in the user's language, and shorter still in a group. The message MUST NOT be stored in the history. | done |
 | FR-TRN-09 | The history sent to the endpoint MUST stay within `HISTORY_MAX_CHARS` by dropping the oldest whole turns, never the turn being answered. | done |
 | FR-TRN-10 | One user MUST NOT have more than `MAX_CONCURRENT_TURNS` turns running at once across chats; further turns wait. | done |
 
@@ -120,7 +120,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 |---|---|---|
 | FR-OUT-01 | While a turn runs the bot MUST send a `typing` action every 2 seconds. | done |
 | FR-OUT-02 | When reactions are enabled (default), the bot MUST react 👀 only to a message that waits behind a running turn or whose turn has run longer than `REACTION_DELAY` seconds (default 10), and MUST remove the reaction when that message's turn ends or is stopped. It MUST NOT react to a message answered promptly. A failure to react MUST be ignored. | done |
-| FR-OUT-03 | Markdown MUST be converted to MarkdownV2 following Hermes's rules: code protected, headings as bold, tables as bullets or code, all other special characters escaped. | done |
+| FR-OUT-03 | Markdown MUST be converted to MarkdownV2 following Hermes's rules: code protected, headings as bold, `<u>x</u>` as underline, `||x||` as spoiler, tables as bullets or code, all other special characters escaped. | done |
 | FR-OUT-04 | When Telegram rejects the formatting, the same text MUST be re-sent as plain text. | done |
 | FR-OUT-05 | A message over 4,096 UTF-16 units MUST be split, each part suffixed `(i/n)`. | done |
 | FR-OUT-06 | Only the first part MUST be a reply to the trigger; in a group forum topic no part is a reply. | done |
