@@ -13,7 +13,7 @@ Body:
 | `model` | the session's model, or `DEFAULT_MODEL` |
 | `messages` | `[system note, ...stored history]` (the note is first and is never stored) |
 | `stream` | `true` |
-| `tools` | `[clarify]` (schema in `specs/005-questions-and-approvals/contracts/clarify-tool.md`) |
+| `tools` | `clarify` (schema in `specs/005-questions-and-approvals/contracts/clarify-tool.md`), then the client tools enabled by `TOOLS` (`specs/007-client-tools/contracts/tools.md`) |
 | each stored setting | `temperature`, `top_p`, `max_tokens`, `seed`, `verbosity`, `presence_penalty`, `frequency_penalty`, `stop`, `reasoning_effort`, as stored |
 
 User message content is a string, or a list of parts: `{"type": "text", "text": ...}` and `{"type": "image_url", "image_url": {"url": "data:<mime>;base64,..."}}`.

@@ -6,6 +6,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from telegram_bot_gateway.domain import tools
+
 
 class ConfigError(Exception):
     pass
@@ -35,6 +37,8 @@ class Settings:
     history_max_chars: int = 200_000
     message_text_days: int = 30
     max_concurrent_turns: int = 2
+    tools: tuple[str, ...] = tools.ALL
+    tool_max_file_bytes: int = 1_048_576
     telegram_proxy: str = ""
     telegram_connect_timeout: float = 20.0
     telegram_read_timeout: float = 30.0
@@ -49,6 +53,10 @@ class Settings:
         webhook_url = env.get("WEBHOOK_URL", "")
         if webhook_url and not env.get("WEBHOOK_SECRET"):
             raise ConfigError("WEBHOOK_URL is set, so WEBHOOK_SECRET is required")
+        try:
+            enabled = tools.parse_names(env.get("TOOLS", ""))
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
         return cls(
             bot_token=env.get("BOT_TOKEN", ""),
             openai_base_url=env["OPENAI_BASE_URL"],
@@ -68,6 +76,8 @@ class Settings:
             history_max_chars=int(env.get("HISTORY_MAX_CHARS") or 200_000),
             message_text_days=int(env.get("MESSAGE_TEXT_DAYS") or 30),
             max_concurrent_turns=int(env.get("MAX_CONCURRENT_TURNS") or 2),
+            tools=enabled,
+            tool_max_file_bytes=int(env.get("TOOL_MAX_FILE_BYTES") or 1_048_576),
             telegram_proxy=env.get("TELEGRAM_PROXY", ""),
             telegram_connect_timeout=float(env.get("TELEGRAM_CONNECT_TIMEOUT") or 20),
             telegram_read_timeout=float(env.get("TELEGRAM_READ_TIMEOUT") or 30),

@@ -43,6 +43,8 @@ the message is shown unchanged.
 | `REACTIONS` | A 👀 on a message only when it is worth it: it waits behind a running turn, or its answer takes longer than `REACTION_DELAY` seconds (default 10). Removed once answered. Default on. |
 | `SHOW_PROGRESS` | Show the endpoint's reasoning as one silent message, edited in place and removed after the answer (default off). |
 | `REQUEST_TIMEOUT` | Seconds a request to the endpoint may take in all. |
+| `TOOLS` | The client tools the endpoint may call, all carried out by the bot in Telegram: `request_approval`, `send_file`, `send_image`, `send_buttons`, `notify`, `react`, `get_context` (`clarify` is always on). Empty means all, `none` means only `clarify`, or a comma list. An unknown name stops the bot at start-up. If the endpoint has a tool of its own with one of these names, leave that name out. |
+| `TOOL_MAX_FILE_BYTES` | Largest file `send_file` may send (default 1,048,576). |
 | `HISTORY_MAX_CHARS` | History sent with each request (default 200,000 characters). Past it the oldest whole turns are dropped, so a very long session keeps working but forgets its beginning. `/new` clears it. |
 | `MESSAGE_TEXT_DAYS` | Days the text of messages is kept for quoting replies (default 30). |
 | `MAX_CONCURRENT_TURNS` | Turns one person may have running at once across chats (default 2); more wait their turn. |

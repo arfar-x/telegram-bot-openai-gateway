@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from telegram_bot_gateway.application.model import Link, PairingRequest, Session
+from telegram_bot_gateway.application.ports import ActionError, Facts
 
 
 class FakeVault:
@@ -104,6 +105,8 @@ class FakeBot:
         self.actions: list[dict[str, Any]] = []
         self.reactions: list[tuple[int, list]] = []
         self.deleted: list[tuple[int, int]] = []
+        self.documents: list[dict[str, Any]] = []
+        self.photos: list[dict[str, Any]] = []
         self.fail_next: list[Exception] = []
         self._ids = iter(range(100, 10_000))
         self.id = 999
@@ -118,6 +121,18 @@ class FakeBot:
     async def edit_message_text(self, **kw):
         self.edits.append(kw)
 
+    async def send_document(self, **kw):
+        if self.fail_next:
+            raise self.fail_next.pop(0)
+        self.documents.append(kw)
+        return SimpleNamespace(message_id=next(self._ids))
+
+    async def send_photo(self, **kw):
+        if self.fail_next:
+            raise self.fail_next.pop(0)
+        self.photos.append(kw)
+        return SimpleNamespace(message_id=next(self._ids))
+
     async def send_chat_action(self, **kw):
         self.actions.append(kw)
 
@@ -126,6 +141,27 @@ class FakeBot:
 
     async def delete_message(self, chat_id, message_id):
         self.deleted.append((chat_id, message_id))
+
+
+class FakeActions:
+    """Records what the client tools did; ``fail`` makes the next action refuse with that reason."""
+
+    def __init__(self, facts: Facts | None = None) -> None:
+        self.done: list[tuple[str, Any]] = []
+        self.fail: str | None = None
+        self._facts = facts or Facts("private", False, "en")
+
+    def _do(self, what: str, arg: Any) -> None:
+        if self.fail:
+            raise ActionError(self.fail)
+        self.done.append((what, arg))
+
+    async def send_file(self, file): self._do("file", file)
+    async def send_image(self, image): self._do("image", image)
+    async def send_buttons(self, buttons): self._do("buttons", buttons)
+    async def notify(self, text): self._do("notify", text)
+    async def react(self, emoji): self._do("react", emoji)
+    def facts(self): return self._facts
 
 
 async def settle(predicate, timeout: float = 3.0) -> None:

@@ -1,4 +1,4 @@
-"""The one tool the bot declares: a question the user answers with a button or a message."""
+"""The ``clarify`` tool: a question the user answers with a button or a message."""
 
 from __future__ import annotations
 
@@ -40,6 +40,11 @@ APPROVAL_CHOICES = ("Approve", "Reject")
 class Question:
     text: str
     options: tuple[str, ...]
+    other: bool = True  # whether the card offers an answer in the user's own words
+
+    @property
+    def show_other(self) -> bool:
+        return self.other and not self.is_approval
 
     @property
     def is_approval(self) -> bool:

@@ -1,6 +1,6 @@
 # Contract: The `clarify` tool
 
-Declared on every request (capability 002). It is the only tool the bot declares.
+Declared on every request (capability 002). It is always declared; the other client tools are specified in capability 007.
 
 ## Declaration
 

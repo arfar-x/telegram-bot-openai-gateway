@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from telegram_bot_gateway.application.model import Link, PairingRequest, Pending, Session
+from telegram_bot_gateway.domain.tools.buttons import Buttons
+from telegram_bot_gateway.domain.tools.files import File
+from telegram_bot_gateway.domain.tools.images import Image
 
 
 class Store(Protocol):
@@ -54,3 +58,25 @@ class Llm(Protocol):
         ...
 
     async def models(self, api_key: str) -> list[str]: ...
+
+
+class ActionError(Exception):
+    """A client tool could not be carried out; the message goes back to the endpoint."""
+
+
+@dataclass(frozen=True)
+class Facts:
+    chat_type: str
+    topic: bool
+    language: str | None
+
+
+class Actions(Protocol):
+    """What the client tools do in the chat of one turn. Each raises ActionError when it cannot."""
+
+    async def send_file(self, file: File) -> None: ...
+    async def send_image(self, image: Image) -> None: ...
+    async def send_buttons(self, buttons: Buttons) -> None: ...
+    async def notify(self, text: str) -> None: ...
+    async def react(self, emoji: str) -> None: ...
+    def facts(self) -> Facts: ...

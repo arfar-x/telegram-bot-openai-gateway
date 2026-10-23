@@ -104,7 +104,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | id | Requirement | Status |
 |---|---|---|
 | FR-TRN-01 | A turn MUST call `POST /v1/chat/completions` with the stored history and the session's model and parameters. | done |
-| FR-TRN-02 | Tool-call round trips MUST be resolved by the bot only for its own `clarify` tool; any other tool call from the endpoint MUST be reported to the user as unsupported. | done |
+| FR-TRN-02 | Tool-call round trips MUST be resolved by the bot only for the client tools it declares (`clarify`, and those of capability 007); any other tool call from the endpoint MUST be reported to the user as unsupported. | done |
 | FR-TRN-03 | Messages arriving during a turn MUST be queued and merged into the next turn of the same session. | done |
 | FR-TRN-04 | `/stop` MUST cancel the running request, discard the queue, and MUST NOT leave an unanswered tool call in the stored history. | done |
 | FR-TRN-05 | Different sessions MUST run concurrently; turns of one session MUST run in order. | done |
@@ -135,13 +135,29 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 
 | id | Requirement | Status |
 |---|---|---|
-| FR-ASK-01 | Every request MUST declare one function tool, `clarify`, taking `questions`, a list of `{question, choices}`; the first question is shown. | done |
+| FR-ASK-01 | Every request MUST declare the function tool `clarify`, taking `questions`, a list of `{question, choices}`; the first question is shown. | done |
 | FR-ASK-02 | A call to `clarify` MUST be shown as a message with one inline button per option and a button for a free-text answer. | done |
 | FR-ASK-03 | A tap MUST be sent to the endpoint as the tool message answering that call; a free-text answer MUST be the user's next message. | done |
 | FR-ASK-04 | An approval card (options Approve and Reject) MUST be rendered like any other `clarify` call. | done |
 | FR-ASK-05 | Only the user the session belongs to MUST be able to answer; a tap by anyone else MUST be refused with an alert. | done |
 | FR-ASK-06 | After an answer the card MUST be edited to show the outcome and the buttons removed. | done |
 | FR-ASK-07 | A pending question MUST survive a restart of the bot; one older than 24 hours MUST be shown as expired and cancelled. | done |
+
+### 5.6.1 Client tools — `FR-TLS`
+
+| id | Requirement | Status |
+|---|---|---|
+| FR-TLS-01 | Every request MUST declare `clarify` followed by the client tools named in `TOOLS` (all by default, none for `none`), and the bot MUST refuse to start when `TOOLS` names an unknown tool. | done |
+| FR-TLS-02 | An immediate client tool call MUST be carried out in the chat of the turn, never one taken from its arguments, answered with a tool message holding the result, and the turn MUST continue; invalid arguments or a failed delivery MUST be that result and MUST NOT fail the turn. | done |
+| FR-TLS-03 | `send_file` MUST send a document named by the last path part of `filename` with the `content` as UTF-8, refusing empty content and content over `TOOL_MAX_FILE_BYTES`. | done |
+| FR-TLS-04 | `send_image` MUST take exactly one of `url` (http or https, fetched by Telegram, never by the bot) and `base64` (at most 10 MiB) and send a photo. | done |
+| FR-TLS-05 | `send_buttons` MUST send `text` with 1 to 8 buttons, one per row, each opening an http(s) `url` or copying a `copy` text. | done |
+| FR-TLS-06 | `notify` MUST send `text` as a silent message and the turn MUST continue. | done |
+| FR-TLS-07 | `react` MUST set an emoji Telegram allows on the user's latest message and the reaction MUST survive the end of the turn and the 👀 chrome. | done |
+| FR-TLS-08 | `get_context` MUST return the chat type, whether it is a topic, the user's language and the UTC time, and nothing that identifies the user. | done |
+| FR-TLS-09 | `request_approval` MUST show a card with the action, the effect when given, and exactly the buttons Allow and Reject, answered through the open-question mechanism of `clarify`. | done |
+| FR-TLS-10 | At most 10 immediate calls MUST be carried out in one turn; the rest MUST be answered with a refusal. | done |
+| FR-TLS-11 | The immediate calls of a round MUST run before a suspending call is shown, and a second suspending call MUST be answered as unsupported. | done |
 
 ### 5.7 Commands and settings — `FR-CMD`
 
@@ -174,7 +190,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 
 | id | Requirement | Status |
 |---|---|---|
-| FR-CFG-01 | Variables: `BOT_TOKEN`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` (optional, for `/v1/models` before a user is linked), `DEFAULT_MODEL`, `DATABASE_URL`, `CREDS_KEY`, `REACTIONS`, `REACTION_DELAY`, `SHOW_PROGRESS`, `REQUEST_TIMEOUT`, `WEBHOOK_URL`, `WEBHOOK_SECRET`. | done |
+| FR-CFG-01 | Variables: `BOT_TOKEN`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` (optional, for `/v1/models` before a user is linked), `DEFAULT_MODEL`, `DATABASE_URL`, `CREDS_KEY`, `REACTIONS`, `REACTION_DELAY`, `SHOW_PROGRESS`, `REQUEST_TIMEOUT`, `TOOLS`, `TOOL_MAX_FILE_BYTES`, `WEBHOOK_URL`, `WEBHOOK_SECRET`. | done |
 | FR-CFG-02 | The module MUST NOT name a model, an organization or a user in a tracked file. | done |
 | FR-CFG-03 | A missing required variable MUST stop the start with a message naming it. | done |
 
@@ -241,6 +257,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | `004-replies-and-feedback` | Formatting, splitting, typing, reactions, progress, delivery fallbacks |
 | `005-questions-and-approvals` | The `clarify` tool, cards, answers, expiry |
 | `006-operations` | Configuration, start-up, health, deployment, database role |
+| `007-client-tools` | The tools the bot carries out itself: approval, files, images, buttons, notes, reactions, context |
 
 | Id here | Specified in |
 |---|---|
@@ -303,6 +320,17 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-ASK-05 | 005/FR-005, 005/FR-006 |
 | FR-ASK-06 | 005/FR-005 |
 | FR-ASK-07 | 005/FR-010, 005/FR-011, 005/FR-013 |
+| FR-TLS-01 | 007/FR-001, 007/FR-002 |
+| FR-TLS-02 | 007/FR-003, 007/FR-004, 007/FR-005 |
+| FR-TLS-03 | 007/FR-006 |
+| FR-TLS-04 | 007/FR-007 |
+| FR-TLS-05 | 007/FR-008 |
+| FR-TLS-06 | 007/FR-009 |
+| FR-TLS-07 | 007/FR-010 |
+| FR-TLS-08 | 007/FR-011 |
+| FR-TLS-09 | 007/FR-012 |
+| FR-TLS-10 | 007/FR-013 |
+| FR-TLS-11 | 007/FR-014 |
 | FR-CMD-01 | 002/FR-028, 006/FR-008, 001/FR-018 |
 | FR-CMD-02 | 002/FR-021 |
 | FR-CMD-03 | 002/FR-022 |

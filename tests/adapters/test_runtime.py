@@ -11,7 +11,7 @@ from telegram_bot_gateway.domain.content import Item
 from tests.fakes import FakeBot, FakeStore, FakeVault, ScriptedLlm, call, say, settle
 
 # Covers: FR-TRN-08, FR-TRN-03, FR-TRN-04, FR-TRN-05, FR-TRN-06, FR-OUT-01, FR-OUT-02, FR-OUT-09, FR-OUT-11
-# Covers: FR-INB-13, FR-INB-08, FR-ASK-02, FR-ASK-04, FR-LNK-01
+# Covers: FR-INB-13, FR-INB-08, FR-ASK-02, FR-ASK-04, FR-LNK-01, FR-TLS-01, FR-TLS-02, FR-TLS-07, FR-TLS-09
 
 
 def settings(**kw):
@@ -246,3 +246,50 @@ async def test_progress_is_off_by_default():
     rt.submit(job())
     await settle(lambda: bot.sent)
     assert bot.deleted == []
+
+
+async def test_the_declared_tools_follow_the_configuration():
+    llm = ScriptedLlm(say("a"), say("b"))
+    bot, _, rt = await make(llm, tools=("notify",))
+    rt.submit(job())
+    await settle(lambda: bot.sent)
+    assert [t["function"]["name"] for t in llm.calls[0]["tools"]] == ["clarify", "notify"]
+
+
+async def test_a_tool_call_acts_in_the_chat_and_the_turn_goes_on():
+    llm = ScriptedLlm(call("send_file", '{"filename":"a.md","content":"hi"}'), say("sent it"))
+    bot, store, rt = await make(llm)
+    rt.submit(job())
+    await settle(lambda: bot.sent)
+    assert bot.documents[0]["document"].filename == "a.md" and texts(bot) == ["sent it"]
+    assert llm.calls[1]["messages"][-1]["content"] == "Sent a.md (2 bytes)."
+
+
+async def test_the_size_limit_of_files_is_configurable():
+    llm = ScriptedLlm(call("send_file", '{"filename":"a.md","content":"hello"}'), say("ok"))
+    bot, _, rt = await make(llm, tool_max_file_bytes=3)
+    rt.submit(job())
+    await settle(lambda: bot.sent)
+    assert bot.documents == [] and "limit is 3" in llm.calls[1]["messages"][-1]["content"]
+
+
+async def test_an_approval_request_is_a_card_with_allow_and_reject_only():
+    ask = call("request_approval", '{"action":"Delete DATA-1","effect":"Gone."}', "ap")
+    bot, store, rt = await make(ScriptedLlm(ask))
+    rt.submit(job())
+    await settle(lambda: store.sessions.get("5") and store.sessions["5"].pending and store.sessions["5"].pending.card_message_id)
+    assert [b.text for row in bot.sent[0]["reply_markup"].inline_keyboard for b in row] == ["Allow", "Reject"]
+    assert bot.sent[0]["text"].startswith("*Delete DATA\\-1*\nGone")
+
+
+async def test_the_endpoints_reaction_is_neither_replaced_nor_removed_by_the_look():
+    async def slow():
+        await asyncio.sleep(0.15)
+        return say("done")
+
+    llm = ScriptedLlm(call("react", '{"emoji":"👍"}'), slow)
+    bot, _, rt = await make(llm, reactions=True, reaction_delay=0.05)
+    rt.submit(job())
+    await settle(lambda: bot.sent)
+    await asyncio.sleep(0.05)
+    assert bot.reactions == [(10, ["👍"])]
