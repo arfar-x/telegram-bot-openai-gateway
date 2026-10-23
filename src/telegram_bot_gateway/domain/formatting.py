@@ -16,6 +16,8 @@ _INLINE = re.compile(
     r"|\*\*(?P<bold>.+?)\*\*"
     r"|__(?P<bold2>.+?)__"
     r"|~~(?P<strike>.+?)~~"
+    r"|<u>(?P<under>.+?)</u>"
+    r"|\|\|(?!\s)(?P<spoiler>.+?)(?<!\s)\|\|"
     r"|(?<![\w*])\*(?!\s)(?P<ital>[^*\n]+?)(?<!\s)\*(?![\w*])"
     r"|(?<!\w)_(?!\s)(?P<ital2>[^_\n]+?)(?<!\s)_(?!\w)",
 )
@@ -53,6 +55,10 @@ def _inline(text: str) -> str:
             out.append(f"*{_inline(m.group('bold') or m.group('bold2'))}*")
         elif m.group("strike") is not None:
             out.append(f"~{_inline(m.group('strike'))}~")
+        elif m.group("under") is not None:
+            out.append(f"__{_inline(m.group('under'))}__")
+        elif m.group("spoiler") is not None:
+            out.append(f"||{_inline(m.group('spoiler'))}||")
         else:
             out.append(f"_{_inline(m.group('ital') or m.group('ital2'))}_")
     out.append(escape(text[pos:]))
@@ -123,6 +129,8 @@ def to_plain(text: str) -> str:
     text = re.sub(r"\[([^\]\n]+)\]\(([^)\s]+)\)", r"\1 (\2)", text)
     text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), text)
     text = re.sub(r"~~(.+?)~~", r"\1", text)
+    text = re.sub(r"<u>(.+?)</u>", r"\1", text)
+    text = re.sub(r"\|\|(?!\s)(.+?)(?<!\s)\|\|", r"\1", text)
     return re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", text)
 
 

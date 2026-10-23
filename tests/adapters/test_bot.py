@@ -291,7 +291,7 @@ async def test_unlinked_users_cannot_change_settings():
 
 class Query:
     def __init__(self, data, user, message):
-        self.data, self.from_user, self.message = data, SimpleNamespace(id=user), message
+        self.data, self.from_user, self.message = data, SimpleNamespace(id=user, language_code="en"), message
         self.answers = []
 
     async def answer(self, text=None, show_alert=False):

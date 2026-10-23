@@ -21,6 +21,7 @@ An answer arrives formatted for Telegram: bold, italic, code, links, lists and q
 **Acceptance Scenarios**:
 
 1. **Given** an answer with `**bold**`, `*italic*`, `~~strike~~`, `` `code` `` and a fenced block, **When** it is sent, **Then** it shows as bold, italic, strikethrough, inline code and a code block, and the characters inside code are not changed.
+1a. **Given** an answer with `<u>underlined</u>` and `||spoiler||`, **When** it is sent, **Then** it shows underlined and as a spoiler; the same marks around a `||` that has no partner, or around whitespace, stay as plain text.
 2. **Given** an answer with a heading line, **When** it is sent, **Then** the heading shows as a bold line.
 3. **Given** a bullet list, **When** it is sent, **Then** each bullet shows as `•` followed by the text.
 4. **Given** a link `[text](url)`, **When** it is sent, **Then** it shows as a link, including a url that holds one level of parentheses.
@@ -117,9 +118,9 @@ Flood limits, a missing topic and a missing replied message do not stop an answe
 - **FR-007**: System MUST end each part, when there is more than one, with a line break and `(i/n)`.
 - **FR-008**: System MUST close a code block at a cut and open it again in the next part.
 - **FR-009**: System MUST split again, at half its length, any part whose formatted text is longer than the limit.
-- **FR-010**: System MUST send answers in Telegram's MarkdownV2 form: fenced and inline code kept with only the backslash and the backtick escaped inside; `**x**` and `__x__` as bold; `~~x~~` as strikethrough; `*x*` and `_x_` as italic (not inside a word); headings as a bold line; lines starting `-`, `*` or `+` and a space as `•`; lines starting `>` as quotes; links with the backslash and the closing parenthesis escaped in the address; every other special character escaped.
+- **FR-010**: System MUST send answers in Telegram's MarkdownV2 form: fenced and inline code kept with only the backslash and the backtick escaped inside; `**x**` and `__x__` as bold; `~~x~~` as strikethrough; `<u>x</u>` as underline; `||x||` as a spoiler (the bars not touching whitespace inside); `*x*` and `_x_` as italic (not inside a word); headings as a bold line; lines starting `-`, `*` or `+` and a space as `•`; lines starting `>` as quotes; links with the backslash and the closing parenthesis escaped in the address; every other special character escaped.
 - **FR-011**: System MUST show a table of up to 5 columns and 12 rows as bullets, each with its first cell in bold, followed by ` — ` and the other non-empty cells as `<heading>: <value>` joined by `; `, and any larger table as a code block.
-- **FR-012**: System MUST resend a message as plain text, once, when Telegram rejects its formatting, with code markers and fences removed, links written as `text (url)`, and bold (`**` and `__`), strike and heading marks removed.
+- **FR-012**: System MUST resend a message as plain text, once, when Telegram rejects its formatting, with code markers and fences removed, links written as `text (url)`, and bold (`**` and `__`), strike, underline (`<u>`), spoiler (`||`) and heading marks removed.
 - **FR-013**: System MUST make only the first part of an answer a reply to the triggering message (the last message of the input), without failing when that message is gone, and MUST NOT make any part a reply in a group topic.
 - **FR-014**: System MUST send into the topic of the session and, when Telegram says the topic is not found, send again without it.
 - **FR-015**: System MUST, when Telegram asks to wait, wait that time plus 0.5 seconds and send again, with at most 5 attempts per message in all.

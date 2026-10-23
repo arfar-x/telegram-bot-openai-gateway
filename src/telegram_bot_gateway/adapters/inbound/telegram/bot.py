@@ -71,13 +71,13 @@ class Where:
     is_group: bool
 
 
-def locate(message: Message, user_id: int) -> Where:
+def locate(message: Message, user_id: int, language: str | None = None) -> Where:
     chat = message.chat
     thread = effective_thread_id(
         thread_id=message.message_thread_id, is_topic_message=bool(message.is_topic_message), is_forum=bool(chat.is_forum)
     )
     key = session_key(chat_type=chat.type, chat_id=chat.id, thread_id=thread, user_id=user_id)
-    return Where(Target(chat.id, chat.type, thread, message.message_id), key, user_id, chat.type != "private")
+    return Where(Target(chat.id, chat.type, thread, message.message_id, language), key, user_id, chat.type != "private")
 
 
 def real_reply(message: Message) -> Message | None:
@@ -148,7 +148,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     flags = _flags(message, bot.id, bot.username)
     if not is_trigger(flags):
         return
-    where = locate(message, user.id)
+    where = locate(message, user.id, user.language_code)
     if media.has_voice(message):
         await deps.sender.send(where.target, "Voice notes are not supported yet; please type your message.")
         return
@@ -187,7 +187,7 @@ async def _ctx(update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[Deps
     message, user = update.effective_message, update.effective_user
     if message is None or user is None:
         return None
-    return _deps(context), locate(message, user.id)
+    return _deps(context), locate(message, user.id, user.language_code)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -351,7 +351,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     deps = _deps(context)
     kind, _, value = query.data.partition(":")
     message = query.message
-    where = locate(message, query.from_user.id)
+    where = locate(message, query.from_user.id, query.from_user.language_code)
     if kind == "a":
         await _on_answer(query, deps, value)
         return
@@ -400,8 +400,8 @@ async def _on_answer(query, deps: Deps, value: str) -> None:
         return
     await query.answer()
     await deps.sender.edit(message.chat.id, message.message_id, f"{pending.question}\n\n✅ {label}")
-    where = locate(message, query.from_user.id)
-    target = Target(message.chat.id, message.chat.type, where.target.thread_id, None)
+    where = locate(message, query.from_user.id, query.from_user.language_code)
+    target = Target(message.chat.id, message.chat.type, where.target.thread_id, None, where.target.language)
     deps.runtime.submit(Job(target, query.from_user.id, session.key, content.Item(label), batching.text_delay(0)))
 
 

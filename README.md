@@ -19,8 +19,12 @@ approvals. Specified in [`docs/spec.md`](docs/spec.md) and [`specs/`](specs/glos
   formatting.
 - **Typing and sparing reactions.** Typing is shown while it works. A 👀 appears only on a message waiting
   behind a running turn, or when an answer takes more than 10 seconds, and is removed afterwards.
-- **Questions and approvals.** The bot declares one tool, `clarify`. A question, or an approval the endpoint
+- **Questions and approvals.** The bot declares the tool `clarify`. A question, or an approval the endpoint
   wants before it writes, appears as a message with buttons; only the owner can tap.
+- **Client tools.** Besides `clarify`, the bot offers plain function tools that it carries out itself in the
+  chat (nothing else is run): `request_approval` (Allow / Reject card), `send_file`, `send_image`,
+  `send_buttons` (link and copy buttons), `notify` (a silent note), `react` and `get_context`. `TOOLS` chooses
+  which; see [`specs/007-client-tools`](specs/007-client-tools/spec.md).
 - **Settings.** `/model`, `/reasoning`, `/set`, `/unset`, `/settings` change what each request sends.
 - **Busy sessions.** Messages sent during a turn are queued and merged into the next one; `/stop` cancels.
 
@@ -81,6 +85,7 @@ Every setting is an environment variable in `.env`; [`.env.example`](.env.exampl
 | `REACTIONS`, `REACTION_DELAY` | `true`, `10` | The sparing 👀 reaction |
 | `SHOW_PROGRESS` | `false` | Show the endpoint's reasoning as one self-editing message |
 | `REQUEST_TIMEOUT` | `600` | Seconds a request to the endpoint may take in all |
+| `TOOLS`, `TOOL_MAX_FILE_BYTES` | all, `1048576` | Which client tools (approval card, files, images, link/copy buttons, notes, reactions, context) the endpoint may call, and the largest file |
 | `HISTORY_MAX_CHARS` | `200000` | History sent with each request; the oldest whole turns are dropped past it |
 | `MESSAGE_TEXT_DAYS` | `30` | Days message texts are kept for quoting replies |
 | `MAX_CONCURRENT_TURNS` | `2` | Turns one person may have running at once across chats |

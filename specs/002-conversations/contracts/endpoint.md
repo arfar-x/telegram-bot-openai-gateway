@@ -13,7 +13,7 @@ Body:
 | `model` | the session's model, or `DEFAULT_MODEL` |
 | `messages` | `[system note, ...stored history]` (the note is first and is never stored) |
 | `stream` | `true` |
-| `tools` | `[clarify]` (schema in `specs/005-questions-and-approvals/contracts/clarify-tool.md`) |
+| `tools` | `clarify` (schema in `specs/005-questions-and-approvals/contracts/clarify-tool.md`), then the client tools enabled by `TOOLS` (`specs/007-client-tools/contracts/tools.md`) |
 | each stored setting | `temperature`, `top_p`, `max_tokens`, `seed`, `verbosity`, `presence_penalty`, `frequency_penalty`, `stop`, `reasoning_effort`, as stored |
 
 User message content is a string, or a list of parts: `{"type": "text", "text": ...}` and `{"type": "image_url", "image_url": {"url": "data:<mime>;base64,..."}}`.
@@ -49,7 +49,7 @@ The first message of every request, role `system`:
 
 > You are talking with the user in Telegram, a chat app used on phones and desktops.
 > - Keep answers short by default: a few brief lines or a short list. Give long or detailed answers only when the user asks for detail.
-> - Format only with Telegram-friendly Markdown: **bold**, *italic*, `code`, fenced code blocks, [links](url), lists with "-", and "> " quotes. Do not use tables, headings or images; use a bold line instead of a heading.
+> - Write plain text by default. Add a mark only where it helps the reader, and never decorate whole sentences or stack marks: **bold** for the one key term or a warning, `code` for commands, paths, identifiers and exact values, <u>underline</u> and ~~strike~~ rarely, ||spoiler|| only for something the user would want to uncover (an answer, a surprise). Also fenced code blocks, [links](url), lists with "-" and "> " quotes. *Italic* only for a title or a light emphasis. Do not use tables, headings or images; use a bold line instead of a heading.
 > - Use a few fitting emojis to make answers easy to scan, for example at the start of a list item. Do not overdo them.
 > - Do not mention which documents or sources an answer came from unless the user asks.
 > - Reply in the language the user writes in.

@@ -10,6 +10,7 @@ from typing import Any
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji
 
+from telegram_bot_gateway.adapters.inbound.telegram.actions import TelegramActions
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender, Target
 from telegram_bot_gateway.adapters.outbound.openai import EndpointError
 from telegram_bot_gateway.application import linking, turn
@@ -65,6 +66,7 @@ class Runtime:
         self._runs: dict[str, _Run] = {}
         self._slots: dict[int, asyncio.Semaphore] = {}  # running turns per person, across chats
         self._marked: dict[tuple[int, int], Target] = {}  # messages carrying our 👀
+        self._kept: set[tuple[int, int]] = set()  # messages whose reaction the endpoint chose
 
     # -- intake --------------------------------------------------------------------------------
     def submit(self, job: Job) -> None:
@@ -177,6 +179,8 @@ class Runtime:
                 work, self._llm, api_key, default_model=self._cfg.default_model, chat_id=target.chat_id,
                 now=time.time(), on_reasoning=progress.update if progress else None,
                 system=telegram_context(target.chat_type),
+                actions=TelegramActions(self._bot, self._sender, target, on_react=lambda: self._keep_reaction(target)),
+                enabled=self._cfg.tools, max_file_bytes=self._cfg.tool_max_file_bytes,
             )
         except asyncio.CancelledError:
             slow.cancel()
@@ -207,7 +211,7 @@ class Runtime:
             else:
                 q = outcome.question
                 ids = await self._sender.send(
-                    target, notices + q.text, reply_markup=card_markup(list(q.options), with_other=not q.is_approval)
+                    target, notices + q.text, reply_markup=card_markup(list(q.options), with_other=q.show_other)
                 )
                 work.pending.card_message_id = ids[0]
             fresh = await self._store.load_session(key)  # settings changed during the turn win
@@ -234,14 +238,21 @@ class Runtime:
         await asyncio.sleep(self._cfg.reaction_delay)
         await self._mark(target)
 
+    def _keep_reaction(self, target: Target) -> None:
+        """The endpoint reacted to this message: our 👀 must neither replace it nor remove it."""
+        key = (target.chat_id, target.reply_to)
+        self._kept.add(key)
+        self._marked.pop(key, None)
+
     async def _mark(self, target: Target) -> None:
-        if not self._cfg.reactions or target.reply_to is None:
+        if not self._cfg.reactions or target.reply_to is None or (target.chat_id, target.reply_to) in self._kept:
             return
         self._marked[(target.chat_id, target.reply_to)] = target
         await self._react(target, "👀")
 
     async def _unmark(self, targets: list[Target]) -> None:
         for target in targets:
+            self._kept.discard((target.chat_id, target.reply_to))
             if self._marked.pop((target.chat_id, target.reply_to), None) is not None:
                 await self._react(target, None)
 

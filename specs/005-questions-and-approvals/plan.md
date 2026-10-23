@@ -4,7 +4,7 @@
 
 ## Summary
 
-The bot declares one tool, `clarify`. When the endpoint calls it, the turn ends with a question; the runtime sends a card, stores its message id with the open question, and a button handler or the owner's next message answers it as a tool message. The question lives inside the session, so it survives restarts.
+The bot always declares the tool `clarify` (capability 007 adds others). When the endpoint calls it, the turn ends with a question; the runtime sends a card, stores its message id with the open question, and a button handler or the owner's next message answers it as a tool message. The question lives inside the session, so it survives restarts.
 
 ## Technical Context
 

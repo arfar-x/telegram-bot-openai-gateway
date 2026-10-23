@@ -22,6 +22,7 @@ class Target:
     chat_type: str
     thread_id: int | None = None
     reply_to: int | None = None
+    language: str | None = None
 
     @property
     def replies(self) -> bool:

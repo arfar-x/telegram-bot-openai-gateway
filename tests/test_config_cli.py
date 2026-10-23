@@ -8,7 +8,7 @@ from telegram_bot_gateway.application.model import Link
 from telegram_bot_gateway.config import ConfigError, Settings
 from tests.fakes import FakeStore, FakeVault
 
-# Covers: FR-CFG-01, FR-CFG-03, FR-OPS-01, FR-LNK-04, FR-LNK-06, FR-LNK-09, FR-OPS-06
+# Covers: FR-TLS-01, FR-CFG-01, FR-CFG-03, FR-OPS-01, FR-LNK-04, FR-LNK-06, FR-LNK-09, FR-OPS-06
 
 ENV = {"BOT_TOKEN": "t", "OPENAI_BASE_URL": "http://x/v1", "DEFAULT_MODEL": "m", "DATABASE_URL": "postgresql://d", "CREDS_KEY": "k"}
 
@@ -80,3 +80,14 @@ async def test_links_and_unlink():
     assert await cli.run(args("unlink", "--username", "ann"), store, vault, notify, out=io.StringIO()) == 0
     assert await cli.run(args("unlink", "--username", "ann"), store, vault, notify, out=io.StringIO()) == 1
     assert await cli.run(args("unlink"), store, vault, notify) == 2
+
+
+def test_the_client_tools_are_chosen_by_the_tools_variable():
+    from telegram_bot_gateway.domain import tools
+
+    assert Settings.from_env(ENV).tools == tools.ALL
+    assert Settings.from_env({**ENV, "TOOLS": "none"}).tools == ()
+    assert Settings.from_env({**ENV, "TOOLS": "react,notify"}).tools == ("notify", "react")
+    assert Settings.from_env({**ENV, "TOOL_MAX_FILE_BYTES": "2048"}).tool_max_file_bytes == 2048
+    with pytest.raises(ConfigError, match="shell"):
+        Settings.from_env({**ENV, "TOOLS": "notify,shell"})

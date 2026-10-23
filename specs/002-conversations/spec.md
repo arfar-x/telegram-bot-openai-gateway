@@ -20,12 +20,12 @@ A linked user sends a message and receives the endpoint's answer. The session co
 
 **Acceptance Scenarios**:
 
-1. **Given** a linked user with no session, **When** they send a message, **Then** the endpoint receives a request with a system note first, then the message, with the default model, no settings, one declared tool (`clarify`), and the user's own API key; and the answer is sent back.
+1. **Given** a linked user with no session, **When** they send a message, **Then** the endpoint receives a request with a system note first, then the message, with the default model, no settings, the declared client tools (by default `clarify` and those of capability 007), and the user's own API key; and the answer is sent back.
 2. **Given** a session with history, **When** the user sends another message, **Then** the request carries the stored history exactly as it was returned, then the new message.
 3. **Given** the user set a model and parameters, **When** a turn runs, **Then** the request uses that model and carries those parameters.
 4. **Given** a message with images in an earlier turn, **When** a later turn runs, **Then** the earlier images are no longer sent and their text is kept.
 5. **Given** the endpoint answers with no text, **When** the turn ends, **Then** nothing is sent to the chat.
-6. **Given** the endpoint calls a tool other than `clarify`, **When** the turn runs, **Then** the call is answered "This client cannot run that tool.", the user is warned of it in the reply, and the turn continues.
+6. **Given** the endpoint calls a tool that is not a declared client tool, **When** the turn runs, **Then** the call is answered "This client cannot run that tool.", the user is warned of it in the reply, and the turn continues.
 7. **Given** the endpoint keeps calling tools, **When** the eighth round ends without an answer, **Then** the turn stops with the notice "Stopped: the endpoint kept calling tools." and no answer text.
 
 ---
@@ -114,12 +114,12 @@ When the endpoint refuses or fails, the user is told why, and the session is as 
 
 ### Functional Requirements
 
-- **FR-001**: System MUST send each turn to the endpoint as a streamed chat request carrying, in order: a system note, the session's stored history, and the new message; with the session's model (or the configured default) and the session's settings; with one declared tool, `clarify`; and with the user's own API key.
+- **FR-001**: System MUST send each turn to the endpoint as a streamed chat request carrying, in order: a system note, the session's stored history, and the new message; with the session's model (or the configured default) and the session's settings; with the declared client tools (`clarify` always, the others per capability 007); and with the user's own API key.
 - **FR-002**: System MUST store, as the history, the user's messages as sent, the assistant's messages exactly as the endpoint returned them (text, and tool calls with their ids, names and arguments), and the answers given to tool calls.
 - **FR-003**: System MUST, before each new message, remove the images from every earlier message, keep its text, and turn a message that has only text parts left back into plain text.
 - **FR-004**: System MUST NOT store the system note in the history.
 - **FR-005**: System MUST stop a turn after at most 8 calls to the endpoint, with the notice "Stopped: the endpoint kept calling tools." and an empty answer.
-- **FR-006**: System MUST answer every tool call other than the first `clarify` call of a round with the text "This client cannot run that tool." and add the notice "The endpoint asked for an unsupported tool: <name>" to the reply.
+- **FR-006**: System MUST answer every tool call that is not a declared client tool, and every suspending call after the first of a round, with the text "This client cannot run that tool." and add the notice "The endpoint asked for an unsupported tool: <name>" to the reply.
 - **FR-007**: System MUST end a turn with the text of the endpoint's last message when it has no tool calls; an answer with no text and no notice sends nothing.
 - **FR-008**: System MUST save the session after a turn succeeds and after its reply has been sent, so the stored history holds only what the user was shown, and MUST take the model and settings from storage at that moment, so changes made during the turn are kept.
 - **FR-009**: System MUST, when a turn fails or is cancelled, leave the stored history exactly as it was before the turn.
