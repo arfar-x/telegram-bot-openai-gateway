@@ -12,12 +12,16 @@ from telegram import Update
 from telegram.ext import Application
 
 from telegram_bot_gateway.adapters.inbound.telegram import bot
+from telegram_bot_gateway.adapters.inbound.telegram.logins import DeviceLogins
 from telegram_bot_gateway.adapters.inbound.telegram.runtime import Runtime
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender
 from telegram_bot_gateway.adapters.outbound.crypto import Vault
+from telegram_bot_gateway.adapters.outbound.oidc import IssuerMisconfigured, OidcIdentity
 from telegram_bot_gateway.adapters.outbound.openai import OpenAIChat
 from telegram_bot_gateway.adapters.outbound.postgres import PostgresStore
-from telegram_bot_gateway.config import Settings
+from telegram_bot_gateway.application import linking
+from telegram_bot_gateway.application.ports import IdentityUnavailable
+from telegram_bot_gateway.config import ConfigError, Settings
 from telegram_bot_gateway.domain import pairing
 
 log = logging.getLogger(__name__)
@@ -45,9 +49,22 @@ def serve(config: Settings) -> None:
         llm = OpenAIChat(config.openai_base_url, config.request_timeout)
         vault = Vault(config.creds_key)
         sender = Sender(app.bot, store)
-        runtime = Runtime(bot=app.bot, store=store, llm=llm, vault=vault, sender=sender, config=config)
-        app.bot_data["deps"] = bot.Deps(config, store, llm, vault, sender, runtime)
-        await app.bot.set_my_commands(bot.MENU)
+        identity = logins = None
+        if config.device_mode:
+            identity = OidcIdentity(config.oidc_issuer, config.oidc_client_id, config.oidc_client_secret, config.oidc_scope)
+            try:
+                await identity.ensure_device_flow()
+            except IssuerMisconfigured as exc:
+                raise ConfigError(str(exc)) from None
+            except IdentityUnavailable as exc:
+                log.warning("the issuer cannot be reached yet; /login will say so until it can (%s)", exc)
+        bearer = linking.Bearer(store, vault, identity, clock=time.time, lock_factory=asyncio.Lock)
+        runtime = Runtime(bot=app.bot, store=store, llm=llm, vault=vault, sender=sender, config=config, bearer=bearer)
+        if identity is not None:
+            logins = DeviceLogins(store=store, vault=vault, identity=identity, bearer=bearer, sender=sender)
+            log.info("resuming %s sign-in(s) in progress", await logins.resume())
+        app.bot_data["deps"] = bot.Deps(config, store, llm, vault, sender, runtime, identity, logins, bearer)
+        await app.bot.set_my_commands(bot.menu(config))
         app.bot_data["heartbeat"] = asyncio.create_task(_heartbeat(config.health_file, app.bot))
         app.bot_data["housekeeping"] = asyncio.create_task(_housekeeping(store, config.message_text_days))
         log.info("ready as @%s", app.bot.username)
@@ -56,15 +73,19 @@ def serve(config: Settings) -> None:
         deps = app.bot_data.get("deps")
         if deps:
             await deps.runtime.shutdown()
+            if deps.logins:
+                await deps.logins.shutdown()
 
     async def post_shutdown(app: Application) -> None:
         deps = app.bot_data.get("deps")
         if deps:
             await deps.llm.close()
+            if deps.identity:
+                await deps.identity.close()
             await deps.store.close()
 
     app = build_application(config, post_init, post_stop, post_shutdown)
-    bot.register(app)
+    bot.register(app, config)
     allowed = [Update.MESSAGE, Update.CALLBACK_QUERY]
     if config.webhook_url:
         app.run_webhook(
@@ -94,6 +115,7 @@ async def _housekeeping(store: Any, text_days: int) -> None:
         try:
             texts = await store.prune_texts(older_than_days=text_days)
             codes = await store.prune_pairings(before=time.time() - pairing.TTL_SECONDS)
+            await store.prune_device_logins(before=time.time())
             log.info("housekeeping removed %s message text(s) and %s expired code(s)", texts, codes)
         except Exception:
             log.exception("housekeeping failed")

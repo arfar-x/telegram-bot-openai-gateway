@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 from types import SimpleNamespace
 from typing import Any
 
-from telegram_bot_gateway.application.model import Link, PairingRequest, Session
-from telegram_bot_gateway.application.ports import ActionError, Facts
+from telegram_bot_gateway.application.model import DeviceLogin, Link, PairingRequest, Session
+from telegram_bot_gateway.application.ports import (
+    ActionError, DeviceAuthorization, DevicePoll, Facts, IdentityRefused, IdentityUnavailable, Tokens,
+)
 
 
 class FakeVault:
@@ -25,6 +28,7 @@ class FakeStore:
         self.pairings: dict[str, PairingRequest] = {}
         self.sessions: dict[str, Session] = {}
         self.texts: dict[tuple[int, int], str] = {}
+        self.logins: dict[int, DeviceLogin] = {}
 
     async def get_link(self, uid): return self.links.get(uid)
     async def save_link(self, link): self.links[link.telegram_user_id] = link
@@ -36,6 +40,34 @@ class FakeStore:
         return len(gone)
 
     async def list_links(self): return list(self.links.values())
+    async def update_oidc_tokens(self, uid, refresh_token_enc, *, refreshed_at):
+        link = self.links.get(uid)
+        if link is None or link.kind != "oidc" or link.status != "active":
+            return False
+        self.links[uid] = dataclasses.replace(link, refresh_token_enc=refresh_token_enc, refreshed_at=refreshed_at)
+        return True
+
+    async def expire_link(self, uid):
+        link = self.links.get(uid)
+        if link is None or link.kind != "oidc":
+            return False
+        self.links[uid] = dataclasses.replace(link, status="expired", refresh_token_enc=None)
+        return True
+
+    async def save_device_login(self, login): self.logins[login.telegram_user_id] = login
+    async def get_device_login(self, uid): return self.logins.get(uid)
+    async def list_device_logins(self): return list(self.logins.values())
+
+    async def delete_device_login(self, uid, *, user_code=None):
+        if uid in self.logins and (user_code is None or self.logins[uid].user_code == user_code):
+            del self.logins[uid]
+
+    async def prune_device_logins(self, *, before):
+        gone = [u for u, l in self.logins.items() if l.expires_at < before]
+        for u in gone:
+            del self.logins[u]
+        return len(gone)
+
     async def create_pairing(self, r): self.pairings[r.code] = r
     async def get_pairing(self, code): return self.pairings.get(code)
     async def pairings_of(self, uid): return [p for p in self.pairings.values() if p.telegram_user_id == uid]
@@ -65,6 +97,52 @@ class FakeStore:
     async def save_text(self, chat_id, message_id, text): self.texts[(chat_id, message_id)] = text
     async def get_text(self, chat_id, message_id): return self.texts.get((chat_id, message_id))
     async def prune_texts(self, *, older_than_days): return 0
+
+
+class FakeIdentity:
+    """An issuer with a script: ``polls`` are the answers to successive polls (a status, a DevicePoll or an Exception);
+    ``refreshes`` likewise for refresh (a Tokens or an Exception). Records what it was asked."""
+
+    def __init__(self, *, polls=(), refreshes=(), revokes=(True,), interval=5, expires_in=600) -> None:
+        self.polls, self.refreshes, self.revokes = list(polls), list(refreshes), list(revokes)
+        self.interval, self.expires_in = interval, expires_in
+        self.started = 0
+        self.polled: list[str] = []
+        self.refreshed: list[str] = []
+        self.revoked: list[str] = []
+        self.unavailable = False
+
+    async def start_device(self):
+        if self.unavailable:
+            raise IdentityUnavailable("down")
+        self.started += 1
+        return DeviceAuthorization(f"dev-{self.started}", "WDJB-MJHT", "https://idp.test/device",
+                                   "https://idp.test/device?user_code=WDJB-MJHT", self.interval, self.expires_in)
+
+    async def poll(self, device_code):
+        self.polled.append(device_code)
+        step = self.polls.pop(0) if self.polls else "pending"
+        if isinstance(step, Exception):
+            raise step
+        return step if isinstance(step, DevicePoll) else DevicePoll(step)
+
+    async def refresh(self, refresh_token):
+        self.refreshed.append(refresh_token)
+        step = self.refreshes.pop(0) if self.refreshes else Tokens(f"access-{len(self.refreshed)}", 300)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    async def revoke(self, refresh_token):
+        self.revoked.append(refresh_token)
+        step = self.revokes.pop(0) if self.revokes else True
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+def approved(*, refresh="rt-1", subject="sub-1", username="ann", access="at-0", expires_in=300) -> DevicePoll:
+    return DevicePoll("approved", Tokens(access, expires_in, refresh, subject, username))
 
 
 class ScriptedLlm:

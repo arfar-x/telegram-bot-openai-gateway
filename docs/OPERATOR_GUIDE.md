@@ -30,10 +30,34 @@ person the same key.
 `make links` lists linked users. `make unlink TG_ID=123` (or `USER_NAME=alice@example.org`) removes the link and
 the user's sessions. It does not revoke the API key at the endpoint.
 
+## Device sign-in
+
+An alternative to pairing: people link themselves at an OpenID Connect issuer, so nobody has to hand over an API
+key. The bot stores each person's refresh token (encrypted with `CREDS_KEY`), never a password, and sends the
+endpoint a fresh access token with every turn, so the endpoint sees who the person is.
+
+1. At your issuer, register a client with the OAuth 2.0 device authorization grant enabled. A public client is
+   enough; give it the `offline_access` scope so the refresh token lasts. If the issuer does not grant
+   long-lived tokens to the device grant, raise the client's session idle and maximum lifespans instead: the bot
+   needs no change.
+2. In `.env` set `LINK_MODE=device`, `OIDC_ISSUER` (the address that serves
+   `/.well-known/openid-configuration`), `OIDC_CLIENT_ID` and, for a confidential client, `OIDC_CLIENT_SECRET`.
+   `OIDC_SCOPE` defaults to `openid offline_access`. `OPENAI_API_KEY` is optional. Then `make restart`.
+3. The bot refuses to start when the issuer's discovery document has no device authorization endpoint. If the
+   issuer cannot be reached at start it warns and starts; `/login` then says the sign-in service is unavailable.
+4. People send `/login` in a private chat, open the address, enter the code and approve. `/logout` revokes the
+   refresh token at the issuer when it has a revocation endpoint and deletes the link.
+
+When the issuer refuses a refresh (the person was disabled, or the token was revoked), the link is marked
+expired and the person is asked to `/login` again; nothing is sent to the endpoint. `make links` shows each
+link's kind (`api_key` or `oidc`) and status; `make unlink` removes either kind. Links made by pairing keep
+working in device mode. Do not back up `CREDS_KEY` next to the database unprotected: together they let anyone act
+as every signed-in person until their tokens are revoked.
+
 ## What users can do
 
 `/new`, `/stop`, `/model`, `/reasoning`, `/set <name> <value>`, `/unset <name>`, `/settings`, `/whoami`,
-`/help`. Settings are per session and sent with every request; an endpoint that refuses a value says so and
+`/help`, and in device mode `/login` and `/logout`. Settings are per session and sent with every request; an endpoint that refuses a value says so and
 the message is shown unchanged.
 
 ## Switches

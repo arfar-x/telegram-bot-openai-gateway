@@ -5,7 +5,9 @@ Terms used by every artifact under `specs/`. Each artifact uses the canonical te
 | Term | Definition | Code names | Avoid |
 |---|---|---|---|
 | **Linked user** | A Telegram user whose Telegram id has a link. Only linked users reach the endpoint. | `Link`, table `links` | allowed user, authorized user, member |
-| **Link** | The record that ties one Telegram user to one API key of the endpoint, with the username the user gave and their Telegram name. The key is stored encrypted. | `Link`, `links.api_key_enc` | account, registration, subscription |
+| **Link** | The record that ties one Telegram user to one way of calling the endpoint, with the username and their Telegram name: an API key (kind `api_key`, from pairing) or an issuer's refresh token and subject (kind `oidc`, from device sign-in). Secrets are stored encrypted. | `Link`, `links.api_key_enc` | account, registration, subscription |
+| **Issuer** | An OpenID Connect provider the bot signs users in with, addressed by `OIDC_ISSUER`. | `OidcIdentity`, `OIDC_ISSUER` | identity provider (in code and replies), IdP, auth server |
+| **Device sign-in** | The OAuth 2.0 device authorization grant: the bot shows an address and a code, the user approves at the issuer on another screen, and the bot receives a refresh token. | `/login`, `DeviceLogin`, table `device_logins` | OAuth login, SSO |
 | **Pairing code** | A one-time code of 8 characters that an unknown user receives and gives to the operator, who approves it to create a link. | `PairingRequest`, table `pairing_codes` | invite code, token, PIN |
 | **Operator** | The person who runs the bot, approves pairing codes and removes links. | CLI `pair`, `links`, `unlink` | admin, owner (an *owner* is the user a session or card belongs to) |
 | **Endpoint** | The OpenAI-compatible Chat Completions service the bot calls, addressed by `OPENAI_BASE_URL`. An agent of the endpoint is addressed as a model name. | `OpenAIChat`, `OPENAI_BASE_URL` | backend, gateway (the gateway is one possible endpoint), LLM, model server |

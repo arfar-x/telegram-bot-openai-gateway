@@ -15,7 +15,7 @@ from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender, Target
 from telegram_bot_gateway.adapters.outbound.openai import EndpointError
 from telegram_bot_gateway.application import linking, turn
 from telegram_bot_gateway.application.model import Session
-from telegram_bot_gateway.application.ports import Llm, Store, Vault
+from telegram_bot_gateway.application.ports import IdentityUnavailable, Llm, Store, Vault
 from telegram_bot_gateway.config import Settings
 from telegram_bot_gateway.domain.content import Item, merge
 from telegram_bot_gateway.domain.prompt import telegram_context
@@ -25,6 +25,16 @@ log = logging.getLogger(__name__)
 RESTART_NOTICE = "I was restarted before I could answer. Please send your message again."
 UNREADABLE_KEY = "Your link can no longer be read. Ask the operator to link you again."
 LINK_PROMPT = "You are not linked yet. Send /start <your username> here and I will give you a code for the operator."
+DEVICE_PROMPT = "You are not linked yet. Send /login to sign in."
+EXPIRED_PROMPT = "Your sign-in has expired. Send /login to sign in again."
+TRY_AGAIN = "The sign-in service did not answer. Please try again in a moment."
+
+
+def link_prompt(config: Settings, link: Any = None) -> str:
+    """What to tell a user with no usable link, for the configured way of linking."""
+    if not config.device_mode:
+        return LINK_PROMPT
+    return EXPIRED_PROMPT if link is not None and not link.usable else DEVICE_PROMPT
 PROGRESS_INTERVAL = 2.0
 PROGRESS_TAIL = 600
 
@@ -59,8 +69,12 @@ def card_markup(options: list[str], *, with_other: bool) -> InlineKeyboardMarkup
 
 
 class Runtime:
-    def __init__(self, *, bot: Bot, store: Store, llm: Llm, vault: Vault, sender: Sender, config: Settings) -> None:
+    def __init__(
+        self, *, bot: Bot, store: Store, llm: Llm, vault: Vault, sender: Sender, config: Settings,
+        bearer: linking.Bearer | None = None,
+    ) -> None:
         self._bot, self._store, self._llm, self._vault = bot, store, llm, vault
+        self._bearer = bearer or linking.Bearer(store, vault, clock=time.time)
         self._sender, self._cfg = sender, config
         self._buckets: dict[str, _Bucket] = {}
         self._runs: dict[str, _Run] = {}
@@ -159,13 +173,20 @@ class Runtime:
         last = jobs[-1]
         target = last.target
         try:
-            api_key = await linking.api_key_for(self._store, self._vault, last.user_id)
+            api_key = await self._bearer.for_user(last.user_id)
         except linking.KeyUnreadable:
-            log.error("the stored API key of telegram user %s cannot be decrypted with CREDS_KEY", last.user_id)
+            log.error("the stored credential of telegram user %s cannot be decrypted with CREDS_KEY", last.user_id)
             await self._sender.send(target, UNREADABLE_KEY)
             return
+        except linking.LinkExpired:
+            await self._sender.send(target, EXPIRED_PROMPT)
+            return
+        except IdentityUnavailable as exc:
+            log.warning("could not get an access token for telegram user %s (%s)", last.user_id, exc.__class__.__name__)
+            await self._sender.send(target, TRY_AGAIN)
+            return
         if api_key is None:
-            await self._sender.send(target, LINK_PROMPT)
+            await self._sender.send(target, link_prompt(self._cfg))
             return
         session = await self._store.load_session(key) or Session(key, last.user_id)
         work, stale = turn.begin(session, merge([j.item for j in jobs]), now=time.time(), max_chars=self._cfg.history_max_chars)

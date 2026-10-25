@@ -9,6 +9,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Device sign-in as a second way to link: with `LINK_MODE=device`, `/login` shows an address and a code, the
+  person approves at an OpenID Connect issuer (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
+  `OIDC_SCOPE`), and the bot calls the endpoint with their own fresh access token on every turn. `/logout`
+  revokes the sign-in at the issuer. A sign-in the issuer stops honouring expires and asks the person to
+  `/login` again. `/whoami` and `make links` show the link kind and status. Pairing stays the default.
+  Specified in `specs/001-account-linking`. Applies migration `002_oidc_links.sql`.
 - Client tools the endpoint can call, carried out by the bot in Telegram and chosen with `TOOLS`
   (all by default, `none`, or a comma list): `request_approval` (an Allow / Reject card), `send_file`,
   `send_image`, `send_buttons` (link and copy-to-clipboard buttons), `notify` (a silent note), `react`

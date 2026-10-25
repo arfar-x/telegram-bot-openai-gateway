@@ -36,7 +36,10 @@ Unknown users ask for a pairing code in a private chat; the operator approves it
 ## Project Structure
 
 ```text
-application/linking.py     request, approve, key lookup, unlink
+application/linking.py     request, approve, key lookup, unlink; start and poll a device login, bearer per turn, logout
+domain/oidc.py             polling schedule, token validity window
+adapters/outbound/oidc.py  the issuer over httpx: discovery, device grant, refresh, revocation
+adapters/inbound/telegram/logins.py   the poll task of pending logins
 domain/pairing.py          code alphabet, length, lifetimes, normalisation
 adapters/outbound/crypto.py   key encryption
 adapters/inbound/telegram/bot.py   /start and the gate on unlinked users
@@ -49,6 +52,10 @@ cli.py                     operator commands
 |---|---|---|
 | `CREDS_KEY` | none (required) | Encrypts stored API keys; losing it makes every stored key unreadable |
 | `DATABASE_URL` | none (required) | The bot's database |
+| `LINK_MODE` | `pairing` | `device` switches linking to the issuer's device sign-in |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID` | none (required in device mode) | The issuer and the public client registered there with the device grant |
+| `OIDC_CLIENT_SECRET` | none | For a confidential client |
+| `OIDC_SCOPE` | `openid offline_access` | Scopes asked for; `offline_access` is what yields a long-lived refresh token |
 | `BOT_TOKEN` | none | Used by `pair approve` to send the confirmation; not needed by the other operator commands |
 
 Fixed values: code length 8, lifetime 3,600 s, request interval 600 s, at most 3 live codes.

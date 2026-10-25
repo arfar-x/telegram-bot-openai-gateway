@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -16,12 +17,15 @@ from telegram.ext import (
 )
 
 from telegram_bot_gateway.adapters.inbound.telegram import media
-from telegram_bot_gateway.adapters.inbound.telegram.runtime import LINK_PROMPT, Job, Runtime
+from telegram_bot_gateway.adapters.inbound.telegram.logins import DeviceLogins, instructions
+from telegram_bot_gateway.adapters.inbound.telegram.runtime import (
+    EXPIRED_PROMPT, LINK_PROMPT, TRY_AGAIN, UNREADABLE_KEY, Job, Runtime, link_prompt,
+)
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender, Target
 from telegram_bot_gateway.adapters.outbound.openai import EndpointError
 from telegram_bot_gateway.application import commands, linking
 from telegram_bot_gateway.application.model import PENDING_TTL_SECONDS, Session
-from telegram_bot_gateway.application.ports import Llm, Store, Vault
+from telegram_bot_gateway.application.ports import IdentityProvider, IdentityUnavailable, Llm, Store, Vault
 from telegram_bot_gateway.config import Settings
 from telegram_bot_gateway.domain import batching, content, settings
 from telegram_bot_gateway.domain.session import effective_thread_id, session_key
@@ -40,6 +44,7 @@ HELP = (
     "/set <name> <value>, /unset <name>  tune the model (temperature, top_p, max_tokens, seed, "
     "verbosity, presence_penalty, frequency_penalty, stop)\n/settings  show what is set\n/whoami  who I think you are"
 )
+HELP_DEVICE = "\n/login  sign in\n/logout  sign out"
 MENU = [
     BotCommand("new", "Start a new conversation"), BotCommand("stop", "Cancel the running request"),
     BotCommand("model", "Choose the model"), BotCommand("reasoning", "Set the reasoning effort"),
@@ -47,6 +52,12 @@ MENU = [
     BotCommand("settings", "Show current settings"), BotCommand("whoami", "Show who you are linked as"),
     BotCommand("help", "What I can do"),
 ]
+MENU_DEVICE = [BotCommand("login", "Sign in"), BotCommand("logout", "Sign out")]
+
+
+def menu(config: Settings) -> list[BotCommand]:
+    """The command menu: ``/login`` and ``/logout`` are listed in device mode only."""
+    return [*MENU_DEVICE, *MENU] if config.device_mode else list(MENU)
 
 
 @dataclass
@@ -57,6 +68,21 @@ class Deps:
     vault: Vault
     sender: Sender
     runtime: Runtime
+    identity: IdentityProvider | None = None
+    logins: DeviceLogins | None = None
+    bearer: linking.Bearer | None = None
+
+    def __post_init__(self) -> None:
+        if self.bearer is None:
+            self.bearer = linking.Bearer(self.store, self.vault, self.identity, clock=time.time, lock_factory=asyncio.Lock)
+
+
+LOGOUT_REPLIES = {
+    "revoked": "Signed out; the sign-in was revoked.",
+    "failed": "Signed out, but the sign-in could not be revoked at the issuer.",
+    "unsupported": "Signed out. The issuer has no revocation, so the sign-in stays valid there.",
+    "none": "Signed out.",
+}
 
 
 def _deps(context: ContextTypes.DEFAULT_TYPE) -> Deps:
@@ -127,16 +153,21 @@ _group_notices: dict[int, float] = {}
 
 async def _require_link(update: Update, context: ContextTypes.DEFAULT_TYPE, where: Where) -> bool:
     deps = _deps(context)
-    if await deps.store.get_link(where.user_id) is not None:
+    link = await deps.store.get_link(where.user_id)
+    if link is not None and link.usable:
         return True
     if not where.is_group:
-        await deps.sender.send(where.target, LINK_PROMPT)
+        await deps.sender.send(where.target, link_prompt(deps.config, link))
     else:
         now = time.monotonic()
         if now - _group_notices.get(where.user_id, -GROUP_NOTICE_INTERVAL) >= GROUP_NOTICE_INTERVAL:
             _group_notices[where.user_id] = now
-            await deps.sender.send(where.target, "Message me privately to link your account first.")
+            await deps.sender.send(where.target, _group_notice(deps.config))
     return False
+
+
+def _group_notice(config: Settings) -> str:
+    return "Message me privately to sign in." if config.device_mode else "Message me privately to link your account first."
 
 
 # -- messages ----------------------------------------------------------------------------------
@@ -197,11 +228,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     deps, where = got
     user = update.effective_user
     link = await deps.store.get_link(user.id)
-    if link is not None:
+    if link is not None and link.usable:
         await deps.sender.send(where.target, f"You are linked as {link.username}. Send me a message to begin.")
         return
     if where.is_group:
-        await deps.sender.send(where.target, "Message me privately to link your account first.")
+        await deps.sender.send(where.target, _group_notice(deps.config))
+        return
+    if deps.config.device_mode:
+        await deps.sender.send(where.target, link_prompt(deps.config, link))
         return
     username = " ".join(context.args or []).strip()
     if not username:
@@ -255,13 +289,60 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     deps, where = got
     link = await deps.store.get_link(where.user_id)
     who = f"linked as {link.username}" if link else "not linked"
-    await deps.sender.send(where.target, f"Telegram id: {where.user_id}\nAccount: {who}\nSession: {where.key}")
+    lines = [f"Telegram id: {where.user_id}", f"Account: {who}"]
+    if link is not None:
+        lines.append(f"Link: {link.kind}")
+        if link.kind == "oidc":
+            lines += [f"Subject: {link.subject}", f"Status: {link.status}"]
+    lines.append(f"Session: {where.key}")
+    await deps.sender.send(where.target, "\n".join(lines))
+
+
+async def cmd_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    got = await _ctx(update, context)
+    if got is None:
+        return
+    deps, where = got
+    user = update.effective_user
+    if where.is_group:
+        await deps.sender.send(where.target, "Message me privately to sign in.")
+        return
+    if deps.logins is None:
+        await deps.sender.send(where.target, "Signing in is not enabled.")
+        return
+    try:
+        login = await deps.logins.begin(
+            telegram_user_id=user.id, chat_id=where.target.chat_id,
+            username=user.username or user.full_name, telegram_name=user.full_name,
+        )
+    except IdentityUnavailable as exc:
+        log.warning("could not start a sign-in (%s)", exc.__class__.__name__)
+        await deps.sender.send(where.target, "The sign-in service is unavailable. Please try again later.")
+        return
+    await deps.sender.send(where.target, instructions(login, deps.logins.now()))
+
+
+async def cmd_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    got = await _ctx(update, context)
+    if got is None:
+        return
+    deps, where = got
+    user_id = where.user_id
+    if deps.logins is not None:
+        deps.logins.cancel(user_id)
+    await deps.runtime.stop(where.key)
+    result = await linking.logout(deps.store, deps.vault, deps.identity, user_id)
+    deps.bearer.forget(user_id)
+    if not result.had_link:
+        await deps.sender.send(where.target, "You are not signed in.")
+    else:
+        await deps.sender.send(where.target, LOGOUT_REPLIES[result.revocation])
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     got = await _ctx(update, context)
     if got is not None:
-        await got[0].sender.send(got[1].target, HELP)
+        await got[0].sender.send(got[1].target, HELP + (HELP_DEVICE if got[0].config.device_mode else ""))
 
 
 async def _session(deps: Deps, where: Where) -> Session:
@@ -330,9 +411,12 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if got is None or not await _require_link(update, context, got[1]):
         return
     deps, where = got
-    key = await linking.api_key_for(deps.store, deps.vault, where.user_id) or deps.config.openai_api_key
     try:
+        key = await deps.bearer.for_user(where.user_id) or deps.config.openai_api_key
         every = await deps.llm.models(key)
+    except (linking.LinkExpired, linking.KeyUnreadable, IdentityUnavailable) as exc:
+        await deps.sender.send(where.target, _credential_problem(exc))
+        return
     except EndpointError as exc:
         await deps.sender.send(where.target, str(exc))
         return
@@ -341,6 +425,14 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     heading = "Choose a model:" if len(every) <= MODEL_BUTTONS else (
         f"Choose a model (showing {MODEL_BUTTONS} of {len(every)}; send /model <name> for any other):")
     await deps.sender.send(where.target, heading, reply_markup=markup)
+
+
+def _credential_problem(exc: Exception) -> str:
+    if isinstance(exc, linking.LinkExpired):
+        return EXPIRED_PROMPT
+    if isinstance(exc, linking.KeyUnreadable):
+        return UNREADABLE_KEY
+    return TRY_AGAIN
 
 
 # -- buttons -----------------------------------------------------------------------------------
@@ -355,13 +447,14 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if kind == "a":
         await _on_answer(query, deps, value)
         return
-    if await deps.store.get_link(where.user_id) is None:
-        await query.answer("Link your account first.", show_alert=True)
+    link = await deps.store.get_link(where.user_id)
+    if link is None or not link.usable:
+        await query.answer("Sign in first." if deps.config.device_mode else "Link your account first.", show_alert=True)
         return
     session = await _session(deps, where)
     try:
         if kind == "m":
-            models = await deps.llm.models(await linking.api_key_for(deps.store, deps.vault, where.user_id) or "")
+            models = await deps.llm.models(await deps.bearer.for_user(where.user_id) or "")
             reply = commands.set_model(session, models[int(value)])
         elif kind == "r":
             reply = commands.set_reasoning(session, value)
@@ -370,6 +463,9 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply = "Settings reset."
     except (ValueError, IndexError, EndpointError) as exc:
         await query.answer(str(exc), show_alert=True)
+        return
+    except (linking.LinkExpired, linking.KeyUnreadable, IdentityUnavailable) as exc:
+        await query.answer(_credential_problem(exc), show_alert=True)
         return
     await deps.store.save_session(session)
     await query.answer(reply)
@@ -427,7 +523,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("unhandled error", exc_info=context.error)
 
 
-def register(app: Application) -> None:
+def register(app: Application, config: Settings | None = None) -> None:
     seen = _Seen()
 
     async def dedupe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -435,11 +531,15 @@ def register(app: Application) -> None:
             raise ApplicationHandlerStop
 
     app.add_handler(TypeHandler(Update, dedupe), group=-1)
+    device = config is not None and config.device_mode
     for name, fn in (
         ("start", cmd_start), ("new", cmd_new), ("stop", cmd_stop), ("whoami", cmd_whoami), ("help", cmd_help),
         ("model", cmd_model), ("reasoning", cmd_reasoning), ("set", cmd_set), ("unset", cmd_unset), ("settings", cmd_settings),
     ):
         app.add_handler(CommandHandler(name, fn))
+    if device:
+        app.add_handler(CommandHandler("login", cmd_login))
+        app.add_handler(CommandHandler("logout", cmd_logout))
     app.add_handler(CallbackQueryHandler(on_button, pattern=r"^[amrs]:"))
     app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & ~filters.COMMAND, on_message))
     app.add_error_handler(on_error)

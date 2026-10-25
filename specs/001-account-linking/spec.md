@@ -85,6 +85,28 @@ The operator removes a link by Telegram id or by username, and the user's sessio
 4. **Given** neither an id nor a username, **When** the operator unlinks, **Then** the command fails with "give --telegram-id or --username".
 5. **Given** the operator lists links, **When** the list is shown, **Then** it has the Telegram id, username and name of each, and never an API key.
 
+---
+
+### User Story 5 - Sign in with the issuer (Priority: P1)
+
+When the bot runs with `LINK_MODE=device`, a person links themselves: they send `/login`, open the address the bot shows on another screen, enter the code and approve at the issuer. The bot then answers their messages under an access token that identifies them, and they can sign out with `/logout`.
+
+**Why this priority**: The operator approving every pairing code does not scale, and the issuer's approval is the user's own.
+
+**Independent Test**: With a fake issuer, send `/login`, approve, send a message and see the endpoint receive the issuer's access token; make the issuer refuse the next refresh and see the user told to sign in again with nothing sent to the endpoint.
+
+**Acceptance Scenarios**:
+
+1. **Given** device mode and an unlinked user in a private chat, **When** they send `/login`, **Then** the bot shows the verification address, the code and the minutes left, and later tells them they are signed in once the issuer approves.
+2. **Given** a login in progress, **When** the issuer answers `authorization_pending`, **Then** the bot waits the interval; on `slow_down` it adds 5 seconds; on `access_denied` or `expired_token` it tells the user which and removes the login.
+3. **Given** a signed-in user, **When** they message the bot, **Then** the endpoint receives a valid access token as the bearer, refreshed only when the one held has less than 60 seconds left.
+4. **Given** the issuer refuses a refresh with `invalid_grant`, **When** the user messages the bot, **Then** the link is marked expired, the stored refresh token is cleared, the user is told to `/login` again and nothing reaches the endpoint.
+5. **Given** the issuer is unreachable, **When** the user messages the bot, **Then** they are asked to try again and the link stays active.
+6. **Given** a signed-in user, **When** they send `/logout`, **Then** the refresh token is revoked at the issuer when it has a revocation endpoint, the link is deleted either way, and the bot says which happened.
+7. **Given** device mode and an unlinked user, **When** they send any message, **Then** they are invited to send `/login` and receive no pairing code.
+
+---
+
 ### Edge Cases
 
 - A code is made of 8 characters drawn from the letters A–Z without I and O and the digits 2–9. Two users cannot hold the same code; a clash is not handled (the creation fails).
@@ -93,7 +115,9 @@ The operator removes a link by Telegram id or by username, and the user's sessio
 - Approving a code does not check that the key works.
 - If the user cannot be told that they are linked (no bot token in the operator's environment, or Telegram refuses), the link is still made; the operator sees "linked, but the user could not be notified" only when sending was attempted and failed.
 - The notice for unlinked group users is remembered in memory only; after a restart it can repeat sooner.
-- A stored key that cannot be decrypted with the configured key is reported to the user as a link that must be renewed.
+- A stored key that cannot be decrypted with the configured key is reported to the user as a link that must be renewed. So is a refresh token that cannot be.
+- The access token of a signed-in user is held in memory only; after a restart the first turn refreshes.
+- A user whose link is `expired` is treated as unlinked, except that the invitation says their sign-in expired.
 
 ## Requirements *(mandatory)*
 
@@ -116,13 +140,29 @@ The operator removes a link by Telegram id or by username, and the user's sessio
 - **FR-015**: System MUST answer `/start`, `/stop`, `/help` and `/whoami` for unlinked users, and MUST require a link for every other command and for the settings buttons.
 - **FR-016**: System MUST tell an unlinked user in a private chat how to link on every message or gated command, and an unlinked user in a group at most once per 600 seconds per user.
 - **FR-017**: System MUST re-check the link when a queued message's turn starts, and MUST answer with the linking reply instead of calling the endpoint when the link is gone.
-- **FR-018**: System MUST answer `/whoami` with three lines: the Telegram id, `linked as <username>` or `not linked`, and the session key, and MUST NOT include an API key.
+- **FR-018**: System MUST answer `/whoami` with the Telegram id, `linked as <username>` or `not linked`, the link kind (`api_key` or `oidc`) and, for an `oidc` link, the issuer's subject and the link's status, then the session key, and MUST NOT include a secret.
 - **FR-019**: System MUST delete pairing codes that are 3,600 seconds old or older when it handles the next pairing request, and in the daily clean-up.
 - **FR-020**: System MUST answer a turn of a user whose stored key cannot be decrypted with "Your link can no longer be read. Ask the operator to link you again.", and write the failure to its log.
 
+- **FR-021**: System MUST, with `LINK_MODE=device`, answer `/login` in a private chat by starting a device authorization at the issuer and showing the verification address (the complete one when offered), the user code and the minutes remaining; in a group it MUST show no code and ask the user to message the bot privately.
+- **FR-022**: System MUST poll the token endpoint at the interval the issuer gave, add 5 seconds to it on `slow_down` and keep the new interval, and stop on approval, `access_denied`, `expired_token` or the code's expiry, telling the user which; a network error or a 5xx answer MUST be retried at the same interval until the code expires.
+- **FR-023**: System MUST keep at most one pending login per Telegram user, replaced by a new `/login`, store it with the device code encrypted, and resume polling every stored login at start.
+- **FR-024**: System MUST, on approval, store the refresh token encrypted, the subject, and a display name (the issuer's `preferred_username`, else the Telegram name), replace any earlier link of the user, and MUST NOT store a password or an access token; an approval without a refresh token or without a subject MUST fail the login with a message to the user.
+- **FR-025**: System MUST send for each turn of an `oidc` link a valid access token as the bearer, obtained by the refresh grant when none is held that is valid for at least 60 more seconds, and MUST send the stored key for an `api_key` link as before.
+- **FR-026**: System MUST store a new refresh token returned by a refresh before the access token is used, and MUST NOT let concurrent turns of one user both refresh.
+- **FR-027**: System MUST, when a refresh is refused with `invalid_grant` or `unauthorized_client`, mark the link `expired`, clear its refresh token, answer "Your sign-in has expired. Send /login to sign in again." and send nothing to the endpoint.
+- **FR-028**: System MUST, when a refresh fails for a transient reason, answer "The sign-in service did not answer. Please try again in a moment." and leave the link unchanged.
+- **FR-029**: System MUST, with `/logout` in device mode, revoke the refresh token at the issuer's revocation endpoint when one is advertised, delete the link and the user's sessions and any pending login whether or not revocation succeeded, and say whether the sign-in was revoked, could not be revoked or the issuer has no revocation.
+- **FR-030**: System MUST, in pairing mode, behave as before this capability had device sign-in.
+- **FR-031**: System MUST, in device mode, answer a private message of a user with no usable link (none, or `expired`) with an invitation to `/login` and no pairing code, keep honouring `api_key` links, and let `/login` by such a user replace the link when approved.
+- **FR-032**: System MUST read the issuer's endpoints from its discovery document (`/.well-known/openid-configuration`) and cache it for one hour, and MAY read the claims of tokens received directly from the token endpoint without checking their signature; a login without a `sub` MUST fail.
+- **FR-033**: System MUST NOT write a refresh token, a device code or an access token to a log, a reply or an error.
+
+
 ### Key Entities
 
-- **Link**: ties one Telegram user to one API key of the endpoint, with the username and name recorded at approval.
+- **Link**: ties one Telegram user to one way of calling the endpoint with the username and name recorded at approval: an API key (`api_key`, from pairing) or an issuer's refresh token and subject (`oidc`, from device sign-in), active or expired.
+- **Device login**: a sign-in in progress for one Telegram user: the encrypted device code, what the user was shown, the polling interval and the expiry.
 - **Pairing code**: a request to be linked, naming the Telegram user, the username they claim and the chat to answer in.
 
 ## Success Criteria *(mandatory)*

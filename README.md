@@ -60,6 +60,10 @@ make unlink TG_ID=123  # or USER_NAME=alice@example.org
 The username in a request is free text, so check that it is who it says before you approve: your approval is
 what stops someone claiming another person's account. Each linked user acts under their own key, so an
 endpoint that identifies callers by key (for example one that keeps per-user credentials) keeps them apart.
+
+Instead of pairing, people can sign themselves in at an OpenID Connect issuer: set `LINK_MODE=device`
+(see "Device sign-in" in [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md)). They send `/login`, approve on
+another screen, and the bot then calls the endpoint with their own access token.
 With an endpoint that has no per-user identity, give everyone the same key.
 
 ## The endpoint

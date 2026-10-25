@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 from telegram_bot_gateway.adapters.outbound.postgres import PostgresStore
-from telegram_bot_gateway.application.model import Link, PairingRequest, Pending, Session
+from telegram_bot_gateway.application.model import DeviceLogin, Link, PairingRequest, Pending, Session
 
-# Covers: FR-OPS-04, FR-SES-02, FR-SES-04, FR-SES-05, FR-ASK-07, FR-LNK-05
+# Covers: FR-OPS-04, FR-SES-02, FR-SES-04, FR-SES-05, FR-ASK-07, FR-LNK-05, FR-LNK-12, FR-LNK-13, FR-LNK-15
 
 pytestmark = pytest.mark.services
 URL = os.environ.get("BOT_TEST_DATABASE_URL", "")
@@ -18,7 +18,7 @@ async def store():
     if not URL:
         pytest.skip("BOT_TEST_DATABASE_URL not set (scripts/test-services.sh)")
     s = await PostgresStore.open(URL, MIGRATIONS)
-    for table in ("links", "pairing_codes", "sessions", "message_texts"):
+    for table in ("links", "pairing_codes", "sessions", "message_texts", "device_logins"):
         await s._run(f"DELETE FROM {table}")
     yield s
     await s.close()
@@ -27,7 +27,7 @@ async def store():
 async def test_migrations_apply_once_and_reopening_is_harmless(store):
     again = await PostgresStore.open(URL, MIGRATIONS)
     names = [r["name"] for r in await again._rows("SELECT name FROM schema_migrations")]
-    assert names == ["001_init.sql"]
+    assert names == ["001_init.sql", "002_oidc_links.sql"]
     await again.close()
 
 
@@ -87,3 +87,44 @@ async def test_old_message_texts_and_expired_codes_can_be_pruned(store):
     await store.create_pairing(PairingRequest("NEW00000", 5, "a", "A", 5, 5000.0))
     assert await store.prune_pairings(before=1000.0) == 1
     assert await store.get_pairing("OLD00000") is None and await store.get_pairing("NEW00000") is not None
+
+
+async def test_oidc_links_round_trip_rotate_expire_and_replace_a_pairing_link(store):
+    await store.save_link(Link(5, "ann", "Ann", "gAAAA-key"))
+    old = await store.get_link(5)
+    assert (old.kind, old.status, old.subject, old.refresh_token_enc, old.refreshed_at) == ("api_key", "active", None, None, None)
+    oidc = Link(5, "ann", "Ann", kind="oidc", subject="sub-1", refresh_token_enc="gAAAA-rt1", refreshed_at=1_700_000_000.0)
+    await store.save_link(oidc)  # replaces the pairing link, key gone
+    assert await store.get_link(5) == oidc
+    assert await store.update_oidc_tokens(5, "gAAAA-rt2", refreshed_at=1_700_000_100.0)
+    assert (await store.get_link(5)).refresh_token_enc == "gAAAA-rt2" and (await store.get_link(5)).refreshed_at == 1_700_000_100.0
+    assert await store.expire_link(5)
+    expired = await store.get_link(5)
+    assert (expired.status, expired.refresh_token_enc, expired.usable) == ("expired", None, False)
+    assert not await store.update_oidc_tokens(5, "x", refreshed_at=1.0)  # an expired link takes no new token
+    assert not await store.expire_link(99)
+    await store.save_link(Link(6, "bob", "Bob", kind="oidc", subject="sub-1", refresh_token_enc="r"))  # one person, two accounts
+    assert len(await store.list_links()) == 2
+
+
+async def test_a_link_must_have_the_shape_of_its_kind(store):
+    import psycopg
+
+    for bad in (Link(7, "x", "X", kind="oidc"), Link(7, "x", "X", "k", subject="s"), Link(7, "x", "X", kind="oidc", subject="s", api_key_enc="k")):
+        with pytest.raises(psycopg.errors.CheckViolation):
+            await store.save_link(bad)
+
+
+async def test_device_logins_are_one_per_user_replaced_pruned_and_deleted_by_code(store):
+    login = DeviceLogin(5, 55, "ann", "Ann", "gAAAA-dev", "WDJB-MJHT", "https://i/d", "https://i/d?c=1", 5, 2_000_000_000.5)
+    await store.save_device_login(login)
+    assert await store.get_device_login(5) == login
+    newer = DeviceLogin(5, 55, "ann", "Ann", "gAAAA-dev2", "NEWCODE", "https://i/d", None, 10, 2_000_000_100.0)
+    await store.save_device_login(newer)  # replaces
+    assert await store.list_device_logins() == [newer]
+    await store.delete_device_login(5, user_code="WDJB-MJHT")  # a stale poller cannot delete its replacement
+    assert await store.get_device_login(5) == newer
+    assert await store.prune_device_logins(before=2_000_000_050.0) == 0 and await store.prune_device_logins(before=2_000_000_200.0) == 1
+    await store.save_device_login(login)
+    await store.delete_device_login(5)
+    assert await store.get_device_login(5) is None

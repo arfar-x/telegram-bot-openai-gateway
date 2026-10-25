@@ -32,10 +32,37 @@ class Session:
 
 @dataclass(frozen=True)
 class Link:
+    """One Telegram user tied to one way of calling the endpoint: an API key or an issuer's refresh token."""
+
     telegram_user_id: int
     username: str
     telegram_name: str
-    api_key_enc: str
+    api_key_enc: str | None = None
+    kind: str = "api_key"  # "api_key" | "oidc"
+    subject: str | None = None
+    refresh_token_enc: str | None = None
+    status: str = "active"  # "active" | "expired"
+    refreshed_at: float | None = None
+
+    @property
+    def usable(self) -> bool:
+        return self.status == "active"
+
+
+@dataclass(frozen=True)
+class DeviceLogin:
+    """A sign-in in progress; the device code is held encrypted."""
+
+    telegram_user_id: int
+    chat_id: int
+    username: str
+    telegram_name: str
+    device_code_enc: str
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str | None
+    interval_seconds: int
+    expires_at: float
 
 
 @dataclass(frozen=True)

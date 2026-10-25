@@ -7,7 +7,7 @@ Run as `python -m telegram_bot_gateway <command>` inside the bot's container. Th
 | `pair list` | none | One line per code younger than 3,600 s: `<code>  <username padded to 24> <Telegram name> (telegram id <id>)`; or `no open codes` | 0 |
 | `pair show <code> [--field username\|telegram_name\|telegram_user_id]` | code (case-insensitive) | `<username> / <Telegram name> / telegram id <id>`, or only the field | 0; 1 with `unknown or expired code` on standard error |
 | `pair approve <code>` | API key on the first line of standard input | `linked <username> (telegram id <id>)` | 0; 1 with `unknown or expired code`; 2 with `expected the API key on standard input` |
-| `links` | none | One line per link: `<telegram id padded to 14> <username padded to 24> <Telegram name>` | 0 |
+| `links` | none | One line per link: `<telegram id padded to 14> <username padded to 24> <Telegram name>  [<kind>, <status>]` where kind is `api_key` or `oidc` and status `active` or `expired` | 0 |
 | `unlink [--telegram-id N] [--username U]` | at least one | `removed <n> link(s)` | 0 when n > 0; 1 when n = 0; 2 with `give --telegram-id or --username` |
 
 `pair approve` sends a confirmation message through the Telegram HTTP API using the bot token when one is present in the environment. When sending fails it prints `linked, but the user could not be notified` to standard error and still exits 0.
@@ -36,3 +36,15 @@ Configuration errors (a missing required variable) print `error: missing require
 | Gated action in a group | `Message me privately to link your account first.` |
 | Settings button, unlinked | alert `Link your account first.` |
 | Approval done | `You are linked. Send me a message to begin.` |
+
+In device mode (`LINK_MODE=device`) users link themselves:
+
+| Situation | Text |
+|---|---|
+| Unlinked or expired, any message | `You are not linked yet. Send /login to sign in.` (expired: `Your sign-in has expired. Send /login to sign in again.`) |
+| `/login` in a group | `Message me privately to sign in.` |
+| `/login` in a private chat | the address, the code and `It expires in <n> minutes. I will tell you when you are signed in.` |
+| Approved | `You are signed in as <name>. Send me a message to begin.` |
+| Denied, expired | `The sign-in was denied.` / `The sign-in code expired. Send /login to start again.` |
+| Issuer unreachable at `/login` | `The sign-in service is unavailable. Please try again later.` |
+| `/logout` | `Signed out; the sign-in was revoked.` / `Signed out, but the sign-in could not be revoked at the issuer.` / `Signed out. The issuer has no revocation, so the sign-in stays valid there.` |

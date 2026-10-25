@@ -1,4 +1,4 @@
-"""The bot's own database: links, pairing codes, sessions."""
+"""The bot's own database: links, device logins, pairing codes, sessions."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from telegram_bot_gateway.application.model import Link, PairingRequest, Pending, Session
+from telegram_bot_gateway.application.model import DeviceLogin, Link, PairingRequest, Pending, Session
 
 
 class PostgresStore:
@@ -57,11 +57,28 @@ class PostgresStore:
 
     async def save_link(self, link: Link) -> None:
         await self._run(
-            "INSERT INTO links (telegram_user_id, username, telegram_name, api_key_enc) VALUES (%s, %s, %s, %s) "
+            "INSERT INTO links (telegram_user_id, username, telegram_name, api_key_enc, kind, subject, "
+            "refresh_token_enc, status, refreshed_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s::float8)) "
             "ON CONFLICT (telegram_user_id) DO UPDATE SET username = EXCLUDED.username, "
-            "telegram_name = EXCLUDED.telegram_name, api_key_enc = EXCLUDED.api_key_enc",
-            (link.telegram_user_id, link.username, link.telegram_name, link.api_key_enc),
+            "telegram_name = EXCLUDED.telegram_name, api_key_enc = EXCLUDED.api_key_enc, kind = EXCLUDED.kind, "
+            "subject = EXCLUDED.subject, refresh_token_enc = EXCLUDED.refresh_token_enc, "
+            "status = EXCLUDED.status, refreshed_at = EXCLUDED.refreshed_at",
+            (link.telegram_user_id, link.username, link.telegram_name, link.api_key_enc, link.kind, link.subject,
+             link.refresh_token_enc, link.status, link.refreshed_at),
         )
+
+    async def update_oidc_tokens(self, telegram_user_id: int, refresh_token_enc: str, *, refreshed_at: float) -> bool:
+        return await self._run(
+            "UPDATE links SET refresh_token_enc = %s, refreshed_at = to_timestamp(%s::float8) "
+            "WHERE telegram_user_id = %s AND kind = 'oidc' AND status = 'active'",
+            (refresh_token_enc, refreshed_at, telegram_user_id),
+        ) > 0
+
+    async def expire_link(self, telegram_user_id: int) -> bool:
+        return await self._run(
+            "UPDATE links SET status = 'expired', refresh_token_enc = NULL WHERE telegram_user_id = %s AND kind = 'oidc'",
+            (telegram_user_id,),
+        ) > 0
 
     async def delete_links(self, *, telegram_user_id: int | None = None, username: str | None = None) -> int:
         return await self._run(
@@ -70,6 +87,38 @@ class PostgresStore:
 
     async def list_links(self) -> list[Link]:
         return [_link(r) for r in await self._rows("SELECT * FROM links ORDER BY created_at")]
+
+    # device logins
+    async def save_device_login(self, login: DeviceLogin) -> None:
+        await self._run(
+            "INSERT INTO device_logins (telegram_user_id, chat_id, username, telegram_name, device_code_enc, user_code, "
+            "verification_uri, verification_uri_complete, interval_seconds, expires_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s::float8)) "
+            "ON CONFLICT (telegram_user_id) DO UPDATE SET chat_id = EXCLUDED.chat_id, username = EXCLUDED.username, "
+            "telegram_name = EXCLUDED.telegram_name, device_code_enc = EXCLUDED.device_code_enc, "
+            "user_code = EXCLUDED.user_code, verification_uri = EXCLUDED.verification_uri, "
+            "verification_uri_complete = EXCLUDED.verification_uri_complete, "
+            "interval_seconds = EXCLUDED.interval_seconds, expires_at = EXCLUDED.expires_at",
+            (login.telegram_user_id, login.chat_id, login.username, login.telegram_name, login.device_code_enc,
+             login.user_code, login.verification_uri, login.verification_uri_complete, login.interval_seconds,
+             login.expires_at),
+        )
+
+    async def get_device_login(self, telegram_user_id: int) -> DeviceLogin | None:
+        rows = await self._rows(_LOGINS + " WHERE telegram_user_id = %s", (telegram_user_id,))
+        return DeviceLogin(**rows[0]) if rows else None
+
+    async def list_device_logins(self) -> list[DeviceLogin]:
+        return [DeviceLogin(**r) for r in await self._rows(_LOGINS + " ORDER BY created_at")]
+
+    async def delete_device_login(self, telegram_user_id: int, *, user_code: str | None = None) -> None:
+        await self._run(
+            "DELETE FROM device_logins WHERE telegram_user_id = %s AND (%s::text IS NULL OR user_code = %s)",
+            (telegram_user_id, user_code, user_code),
+        )
+
+    async def prune_device_logins(self, *, before: float) -> int:
+        return await self._run("DELETE FROM device_logins WHERE expires_at < to_timestamp(%s::float8)", (before,))
 
     # pairing
     async def create_pairing(self, request: PairingRequest) -> None:
@@ -141,8 +190,18 @@ class PostgresStore:
         return rows[0]["text"] if rows else None
 
 
+_LOGINS = (
+    "SELECT telegram_user_id, chat_id, username, telegram_name, device_code_enc, user_code, verification_uri, "
+    "verification_uri_complete, interval_seconds, EXTRACT(EPOCH FROM expires_at)::float8 AS expires_at FROM device_logins"
+)
+
+
 def _link(row: dict[str, Any]) -> Link:
-    return Link(row["telegram_user_id"], row["username"], row["telegram_name"], row["api_key_enc"])
+    refreshed = row["refreshed_at"]
+    return Link(
+        row["telegram_user_id"], row["username"], row["telegram_name"], row["api_key_enc"], row["kind"],
+        row["subject"], row["refresh_token_enc"], row["status"], refreshed.timestamp() if refreshed else None,
+    )
 
 
 def _session(row: dict[str, Any]) -> Session:

@@ -65,7 +65,7 @@ async def run(args: argparse.Namespace, store: Any, vault: Any, notify: Callable
                 print("linked, but the user could not be notified", file=sys.stderr)
     elif args.command == "links":
         for link in await store.list_links():
-            print(f"{link.telegram_user_id:<14} {link.username:<24} {link.telegram_name}", file=out)
+            print(f"{link.telegram_user_id:<14} {link.username:<24} {link.telegram_name}  [{link.kind}, {link.status}]", file=out)
     elif args.command == "unlink":
         if args.telegram_id is None and not args.username:
             print("give --telegram-id or --username", file=sys.stderr)

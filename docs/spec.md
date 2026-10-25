@@ -24,11 +24,13 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | Term | Meaning |
 |---|---|
 | **Endpoint** | The OpenAI-compatible service the bot calls (`OPENAI_BASE_URL`). |
-| **Link** | The record tying one Telegram user to one API key of the endpoint. |
+| **Link** | The record tying one Telegram user to one way of calling the endpoint: an API key (pairing) or a refresh token of an issuer (device sign-in). |
 | **Session** | One conversation: a message history plus settings, keyed by chat, topic and (in groups) user. |
 | **Turn** | One request to the endpoint, including the tool-call round trips it needs. |
 | **Trigger** | An incoming message the bot answers. |
 | **Operator** | The person who runs the bot and approves links. |
+| **Issuer** | An OpenID Connect provider the bot signs users in with (`OIDC_ISSUER`). |
+| **Device sign-in** | The OAuth 2.0 device authorization grant (RFC 8628): the bot shows a code and an address, the user approves on another screen. |
 
 ## 3. Decisions of record
 
@@ -39,6 +41,9 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | No allowlist; a user must be linked | Who may use the bot comes from the operator's approval of a link, not from a list of Telegram ids kept in the bot. |
 | Operator approves every link | The approval is what stops a user claiming someone else's account. |
 | State in a PostgreSQL database of its own | The bundled compose file runs a PostgreSQL container for it; any PostgreSQL database it owns will do. |
+| A second link mode, device sign-in, next to pairing | The operator approving a pairing code does not scale and ties a Telegram account to an API key someone must hand over. An issuer's approval is the user's own. |
+| Only a refresh token is stored, never a password or a long-lived access token | A refresh token can be revoked at the issuer; a password cannot be un-shared. |
+| The bot calls the endpoint with a fresh access token on every turn | The endpoint then sees who the person is and when they were disabled, without the bot caching an identity. |
 | Queue, never interrupt | A turn may run write tools on the endpoint's side; aborting mid-turn can hide a side effect. |
 | No live-edit streaming | Costs an edit loop and a rate budget; the typing indicator covers the wait. |
 
@@ -51,6 +56,8 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | AS-03 | **Given** a group, **when** a member replies to the bot, **then** the bot answers in the same topic. | done |
 | AS-04 | **Given** a write the endpoint asks to approve, **when** the owner taps Reject, **then** the endpoint receives the rejection and nothing is written. | done |
 | AS-05 | **Given** a forwarded message, **when** it is sent to the bot, **then** the model sees where it came from. | done |
+| AS-06 | **Given** device mode and an unlinked user, **when** they send `/login` and approve at the issuer, **then** their next message is answered by the endpoint with a bearer token that identifies them. | done |
+| AS-07 | **Given** a device-linked user whose account the issuer has disabled, **when** they message the bot, **then** they are told to sign in again and nothing reaches the endpoint. | done |
 
 ## 5. Requirements
 
@@ -63,11 +70,19 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-LNK-03 | Pairing requests MUST be limited to one per user per 10 minutes and three pending per user. | done |
 | FR-LNK-04 | The operator MUST be able to list pending codes, showing the claimed username and Telegram name, and approve one by supplying an API key on standard input. | done |
 | FR-LNK-05 | An API key MUST be stored encrypted with a key from the environment and MUST NOT appear in a log, a reply or an error. | done |
-| FR-LNK-06 | The operator MUST be able to unlink by Telegram id or username; the user's sessions MUST then stop working. | done |
+| FR-LNK-06 | The operator MUST be able to unlink by Telegram id or username, for either kind of link; the user's sessions MUST then stop working, and the CLI listing shows each link's kind (`api_key` or `oidc`) and status. | done |
 | FR-LNK-07 | In a group, an unlinked user who triggers the bot MUST get one short "message me privately to link" reply, at most once per 10 minutes per user. | done |
 | FR-LNK-08 | Linking MUST sit behind a port so another identity source can replace pairing without changing the rest. | done |
 | FR-LNK-09 | The package MUST NOT import another product's code; a deployment script outside the package may issue the API key and pass it in. | done |
-| FR-LNK-10 | A turn of a user whose stored key cannot be decrypted MUST be answered with a message saying the link must be renewed, not left without a reply. | done |
+| FR-LNK-10 | A turn of a user whose stored key cannot be decrypted MUST be answered with a message saying the link must be renewed, not left without a reply. The same message applies to a refresh token that cannot be decrypted. | done |
+| FR-LNK-11 | With `LINK_MODE=device`, `/login` in a private chat MUST start a device authorization at the issuer and show the verification address (the complete one when the issuer offers it), the user code, and how many minutes remain. In a group it MUST NOT show a code and MUST ask the user to message the bot privately. | done |
+| FR-LNK-12 | The bot MUST poll the issuer's token endpoint at the interval it was given, add 5 seconds on `slow_down`, and stop on success, `access_denied`, `expired_token` or the code's expiry, telling the user which. One pending login per user: a new `/login` replaces it. A pending login MUST survive a restart. | done |
+| FR-LNK-13 | On success the bot MUST store the user's refresh token encrypted with a key from the environment, the issuer's subject (`sub`) and a display name, and MUST NOT store a password or a long-lived access token. | done |
+| FR-LNK-14 | For each turn of a device-linked user the bot MUST send the endpoint a valid access token as the bearer, obtaining one by the refresh grant when it has none that is valid for at least another 60 seconds. If the issuer returns a new refresh token it MUST be stored before the access token is used. Concurrent turns of one user MUST NOT both refresh. | done |
+| FR-LNK-15 | When the issuer refuses a refresh (`invalid_grant`, `unauthorized_client`), the bot MUST mark the link expired, clear the stored refresh token, tell the user to `/login` again, and send nothing to the endpoint. A transient failure (network error, 5xx) MUST produce a "try again" reply and leave the link as it is. | done |
+| FR-LNK-16 | `/logout` MUST revoke the refresh token at the issuer's revocation endpoint when it advertises one (RFC 7009), then delete the link whether or not revocation succeeded, and say which happened. | done |
+| FR-LNK-17 | `LINK_MODE=pairing` (the default) MUST behave exactly as before. In device mode an unlinked user's private message MUST get an invitation to `/login` and no pairing code; links made by pairing MUST keep working; `/login` by a pairing-linked user MUST replace that link. | done |
+| FR-LNK-18 | Endpoints MUST come from the issuer's discovery document (`/.well-known/openid-configuration`, cached for one hour). Claims of tokens received directly from the token endpoint over TLS MAY be read without checking their signature; `sub` MUST be present or the login fails. Refresh tokens, device codes and access tokens MUST NOT appear in a log, a reply or an error. | done |
 
 ### 5.2 Sessions — `FR-SES`
 
@@ -170,7 +185,9 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-CMD-05 | `/settings` MUST show the model and every parameter in effect, with a reset button. | done |
 | FR-CMD-06 | Values MUST be checked for type and range before storing; a refusal by the endpoint MUST be shown unchanged. | done |
 | FR-CMD-07 | In a group a command MUST act on the sender's own session. | done |
-| FR-CMD-08 | `/whoami` MUST show the Telegram id, the linked username and the session key, and no secret. | done |
+| FR-CMD-08 | `/whoami` MUST show the Telegram id, the linked username and the session key, and no secret; it MUST also show the link kind, and for a device link the issuer's subject and the link's status. | done |
+| FR-CMD-09 | In device mode the bot MUST support `/login`, registered in the command menu; in pairing mode it MUST NOT list it. | done |
+| FR-CMD-10 | In device mode the bot MUST support `/logout`, registered in the command menu. | done |
 
 ### 5.8 Transport and operation — `FR-OPS`
 
@@ -193,6 +210,8 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-CFG-01 | Variables: `BOT_TOKEN`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` (optional, for `/v1/models` before a user is linked), `DEFAULT_MODEL`, `DATABASE_URL`, `CREDS_KEY`, `REACTIONS`, `REACTION_DELAY`, `SHOW_PROGRESS`, `REQUEST_TIMEOUT`, `TOOLS`, `TOOL_MAX_FILE_BYTES`, `WEBHOOK_URL`, `WEBHOOK_SECRET`. | done |
 | FR-CFG-02 | The module MUST NOT name a model, an organization or a user in a tracked file. | done |
 | FR-CFG-03 | A missing required variable MUST stop the start with a message naming it. | done |
+| FR-CFG-04 | Variables for device mode: `LINK_MODE` (`pairing` default, or `device`), `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (optional; for a confidential client), `OIDC_SCOPE` (default `openid offline_access`). `OIDC_ISSUER` and `OIDC_CLIENT_ID` are required when `LINK_MODE=device`. | done |
+| FR-CFG-05 | In device mode the bot MUST fail to start if the issuer's discovery document has no device authorization endpoint; an issuer that cannot be reached at start MUST give a warning, and `/login` MUST then tell the user the sign-in service is unavailable. `OPENAI_API_KEY` is optional in device mode. | done |
 
 ### 5.10 Architecture — `NFR-ARC`
 
@@ -217,7 +236,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | `sendRichMessage` | MarkdownV2 with a plain fallback is enough. |
 | Observing unmentioned group messages | Privacy cost; the bot answers only when addressed. |
 | Sticker vision | Placeholder is enough. |
-| Keycloak linking | Planned as a second adapter of FR-LNK-08. |
+| Password sign-in, and any sign-in other than the device grant | The bot never handles a user's password. |
 
 ## 7. Repository layout
 
@@ -227,7 +246,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
   compose.yaml          # the bot and its own PostgreSQL
   .env.example          # copied to .env by `make setup` (ignored by git)
   docs/spec.md  docs/OPERATOR_GUIDE.md
-  migrations/001_init.sql
+  migrations/001_init.sql  002_oidc_links.sql
   scripts/              # prepare.sh, test-services.sh, lib/env.sh
   specs/                # capability specs and glossary
   .specify/memory/constitution.md
@@ -251,7 +270,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 
 | Directory | Capability |
 |---|---|
-| `001-account-linking` | Pairing, operator approval, unlinking, the gate on unlinked users |
+| `001-account-linking` | Pairing, device sign-in, operator approval, unlinking, the gate on unlinked users |
 | `002-conversations` | Turns, history, queue, stop, new, settings and commands |
 | `003-incoming-messages` | Triggers, groups, topics, replies, forwards, media, batching |
 | `004-replies-and-feedback` | Formatting, splitting, typing, reactions, progress, delivery fallbacks |
@@ -271,6 +290,14 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-LNK-08 | 001 research (replaceable step), constitution (Additional Constraints) |
 | FR-LNK-09 | 001/FR-012, constitution I |
 | FR-LNK-10 | 001/FR-020 |
+| FR-LNK-11 | 001/FR-021 |
+| FR-LNK-12 | 001/FR-022, 001/FR-023 |
+| FR-LNK-13 | 001/FR-024 |
+| FR-LNK-14 | 001/FR-025, 001/FR-026 |
+| FR-LNK-15 | 001/FR-027, 001/FR-028 |
+| FR-LNK-16 | 001/FR-029 |
+| FR-LNK-17 | 001/FR-030, 001/FR-031 |
+| FR-LNK-18 | 001/FR-032, 001/FR-033 |
 | FR-SES-01 | 002/FR-019 |
 | FR-SES-02 | 002/FR-001, 002/FR-002, 002/FR-018 |
 | FR-SES-03 | 002/FR-017, 002/FR-018 |
@@ -339,6 +366,8 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-CMD-06 | 002/FR-024 |
 | FR-CMD-07 | 002/FR-020 |
 | FR-CMD-08 | 001/FR-018 |
+| FR-CMD-09 | 001/FR-021, 006/FR-024 |
+| FR-CMD-10 | 001/FR-029, 006/FR-024 |
 | FR-OPS-01 | 006/FR-005, 006/FR-006 |
 | FR-OPS-02 | 006/FR-005 |
 | FR-OPS-03 | 003/FR-001 |
@@ -351,11 +380,15 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-CFG-01 | 006/FR-001 |
 | FR-CFG-02 | constitution I |
 | FR-CFG-03 | 006/FR-002 |
+| FR-CFG-04 | 006/FR-024 |
+| FR-CFG-05 | 006/FR-025 |
 | NFR-ARC-01 to NFR-ARC-04 | constitution I, III, V and each plan's Constitution Check |
 | AS-01 | 002 User Story 1 |
 | AS-02 | 001 User Stories 1 and 3 |
 | AS-03 | 003 User Story 2, 004 User Story 5 |
 | AS-04 | 005 User Story 1 |
 | AS-05 | 003 User Story 3 |
+| AS-06 | 001 User Story 5 |
+| AS-07 | 001 User Story 5 |
 
 No known defects or gaps are open. Each directory's `Known Defects and Gaps` section lists any that are found later, and a fix removes its entry; `tests/test_fixed_defects.py` holds the regression tests of the ones fixed so far.

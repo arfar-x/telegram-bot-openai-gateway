@@ -42,6 +42,15 @@ class Settings:
     telegram_proxy: str = ""
     telegram_connect_timeout: float = 20.0
     telegram_read_timeout: float = 30.0
+    link_mode: str = "pairing"
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_scope: str = "openid offline_access"
+
+    @property
+    def device_mode(self) -> bool:
+        return self.link_mode == "device"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None, *, need_bot: bool = True) -> Settings:
@@ -53,6 +62,13 @@ class Settings:
         webhook_url = env.get("WEBHOOK_URL", "")
         if webhook_url and not env.get("WEBHOOK_SECRET"):
             raise ConfigError("WEBHOOK_URL is set, so WEBHOOK_SECRET is required")
+        link_mode = (env.get("LINK_MODE") or "pairing").strip().lower()
+        if link_mode not in ("pairing", "device"):
+            raise ConfigError("LINK_MODE must be 'pairing' or 'device'")
+        if link_mode == "device":
+            absent = [n for n in ("OIDC_ISSUER", "OIDC_CLIENT_ID") if not env.get(n)]
+            if absent:
+                raise ConfigError("LINK_MODE=device needs: " + ", ".join(absent))
         try:
             enabled = tools.parse_names(env.get("TOOLS", ""))
         except ValueError as exc:
@@ -81,4 +97,9 @@ class Settings:
             telegram_proxy=env.get("TELEGRAM_PROXY", ""),
             telegram_connect_timeout=float(env.get("TELEGRAM_CONNECT_TIMEOUT") or 20),
             telegram_read_timeout=float(env.get("TELEGRAM_READ_TIMEOUT") or 30),
+            link_mode=link_mode,
+            oidc_issuer=env.get("OIDC_ISSUER", ""),
+            oidc_client_id=env.get("OIDC_CLIENT_ID", ""),
+            oidc_client_secret=env.get("OIDC_CLIENT_SECRET", ""),
+            oidc_scope=env.get("OIDC_SCOPE") or "openid offline_access",
         )

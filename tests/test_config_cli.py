@@ -8,7 +8,7 @@ from telegram_bot_gateway.application.model import Link
 from telegram_bot_gateway.config import ConfigError, Settings
 from tests.fakes import FakeStore, FakeVault
 
-# Covers: FR-TLS-01, FR-CFG-01, FR-CFG-03, FR-OPS-01, FR-LNK-04, FR-LNK-06, FR-LNK-09, FR-OPS-06
+# Covers: FR-TLS-01, FR-CFG-01, FR-CFG-03, FR-CFG-04, FR-CFG-05, FR-OPS-01, FR-LNK-04, FR-LNK-06, FR-LNK-09, FR-OPS-06
 
 ENV = {"BOT_TOKEN": "t", "OPENAI_BASE_URL": "http://x/v1", "DEFAULT_MODEL": "m", "DATABASE_URL": "postgresql://d", "CREDS_KEY": "k"}
 
@@ -30,6 +30,29 @@ def test_a_webhook_requires_its_secret():
     with pytest.raises(ConfigError, match="WEBHOOK_SECRET"):
         Settings.from_env({**ENV, "WEBHOOK_URL": "https://bot.example/hook"})
     assert Settings.from_env({**ENV, "WEBHOOK_URL": "https://b/h", "WEBHOOK_SECRET": "s"}).webhook_url == "https://b/h"
+
+
+def test_pairing_is_the_default_link_mode_and_needs_no_issuer():
+    s = Settings.from_env(ENV)
+    assert (s.link_mode, s.device_mode, s.oidc_scope) == ("pairing", False, "openid offline_access")
+
+
+def test_device_mode_reads_the_issuer_variables_and_requires_the_issuer_and_the_client():
+    s = Settings.from_env({**ENV, "LINK_MODE": "device", "OIDC_ISSUER": "https://idp/realms/r", "OIDC_CLIENT_ID": "bot",
+                           "OIDC_CLIENT_SECRET": "s", "OIDC_SCOPE": "openid profile offline_access"})
+    assert (s.device_mode, s.oidc_issuer, s.oidc_client_id, s.oidc_client_secret, s.oidc_scope) == (
+        True, "https://idp/realms/r", "bot", "s", "openid profile offline_access")
+    with pytest.raises(ConfigError, match="OIDC_ISSUER, OIDC_CLIENT_ID"):
+        Settings.from_env({**ENV, "LINK_MODE": "device"})
+    with pytest.raises(ConfigError, match="OIDC_CLIENT_ID"):
+        Settings.from_env({**ENV, "LINK_MODE": "device", "OIDC_ISSUER": "https://idp"})
+    with pytest.raises(ConfigError, match="LINK_MODE"):
+        Settings.from_env({**ENV, "LINK_MODE": "ldap"})
+
+
+def test_the_endpoint_key_is_optional_in_device_mode():
+    env = {**ENV, "LINK_MODE": "device", "OIDC_ISSUER": "https://idp", "OIDC_CLIENT_ID": "bot"}
+    assert Settings.from_env(env).openai_api_key == ""
 
 
 def args(*argv):
@@ -77,6 +100,7 @@ async def test_links_and_unlink():
     out = io.StringIO()
     await cli.run(args("links"), store, vault, notify, out=out)
     assert "ann" in out.getvalue() and "enc:k" not in out.getvalue()  # never a key
+    assert "[api_key, active]" in out.getvalue()
     assert await cli.run(args("unlink", "--username", "ann"), store, vault, notify, out=io.StringIO()) == 0
     assert await cli.run(args("unlink", "--username", "ann"), store, vault, notify, out=io.StringIO()) == 1
     assert await cli.run(args("unlink"), store, vault, notify) == 2
@@ -91,3 +115,13 @@ def test_the_client_tools_are_chosen_by_the_tools_variable():
     assert Settings.from_env({**ENV, "TOOL_MAX_FILE_BYTES": "2048"}).tool_max_file_bytes == 2048
     with pytest.raises(ConfigError, match="shell"):
         Settings.from_env({**ENV, "TOOLS": "notify,shell"})
+
+
+async def test_the_listing_shows_the_kind_and_status_of_each_link_and_no_secret():
+    store, vault = FakeStore(), FakeVault()
+    await store.save_link(Link(6, "bob", "Bob", kind="oidc", subject="sub-b", refresh_token_enc="enc:rt-secret", status="expired"))
+    _, notify = await notified()
+    out = io.StringIO()
+    await cli.run(args("links"), store, vault, notify, out=out)
+    assert "[oidc, expired]" in out.getvalue() and "rt-secret" not in out.getvalue() and "sub-b" not in out.getvalue()
+    assert await cli.run(args("unlink", "--telegram-id", "6"), store, vault, notify, out=io.StringIO()) == 0  # either kind

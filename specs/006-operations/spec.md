@@ -112,6 +112,8 @@ The bot runs with its own database and no published port, and can be set up, sta
 - **FR-021**: System MUST at start and then daily delete message texts older than the configured number of days and pairing codes older than 3,600 seconds.
 - **FR-022**: System MUST offer an opt-in addition to the compose file for webhook mode that publishes the webhook port on the loopback interface only.
 - **FR-023**: System MUST use the configured connection and read timeouts (defaults 20 and 30 seconds) for its calls to Telegram, and the configured proxy for them when one is set.
+- **FR-024**: System MUST read `LINK_MODE` (`pairing`, the default, or `device`), `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (optional) and `OIDC_SCOPE` (default `openid offline_access`); in device mode `OIDC_ISSUER` and `OIDC_CLIENT_ID` are required, an unknown `LINK_MODE` stops the start, and the command menu lists `/login` and `/logout` only in device mode.
+- **FR-025**: System MUST, in device mode, refuse to start when the issuer's discovery document has no device authorization endpoint, and when the issuer cannot be reached at start MUST log a warning, start anyway and answer `/login` with "The sign-in service is unavailable. Please try again later."; `OPENAI_API_KEY` stays optional.
 
 ### Key Entities
 

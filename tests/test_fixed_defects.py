@@ -210,6 +210,7 @@ async def test_gap008_a_key_that_cannot_be_decrypted_is_reported_to_the_user():
 
     bot, store, rt = await make(ScriptedLlm(say("never")))
     rt._vault = BrokenVault()
+    rt._bearer = linking.Bearer(store, rt._vault, clock=lambda: 0.0)
     rt.submit(job())
     await settle(lambda: bot.sent)
     assert runtime_mod.UNREADABLE_KEY in texts(bot)[0].replace("\\", "") and rt._llm.calls == []
