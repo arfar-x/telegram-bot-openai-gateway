@@ -13,7 +13,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   person approves at an OpenID Connect issuer (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
   `OIDC_SCOPE`), and the bot calls the endpoint with their own fresh access token on every turn. `/logout`
   revokes the sign-in at the issuer. A sign-in the issuer stops honouring expires and asks the person to
-  `/login` again. `/whoami` and `make links` show the link kind and status. Pairing stays the default.
+  `/login` again. `/whoami` and `make links` show the link kind and status. Pairing stays the default. The `/login` message has a **Sign in** button and a **Copy code** button, so
+  the address and code need not be copied by hand.
   Specified in `specs/001-account-linking`. Applies migration `002_oidc_links.sql`.
 - Client tools the endpoint can call, carried out by the bot in Telegram and chosen with `TOOLS`
   (all by default, `none`, or a comma list): `request_approval` (an Allow / Reject card), `send_file`,

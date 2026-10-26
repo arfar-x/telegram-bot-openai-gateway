@@ -157,6 +157,7 @@ When the bot runs with `LINK_MODE=device`, a person links themselves: they send 
 - **FR-031**: System MUST, in device mode, answer a private message of a user with no usable link (none, or `expired`) with an invitation to `/login` and no pairing code, keep honouring `api_key` links, and let `/login` by such a user replace the link when approved.
 - **FR-032**: System MUST read the issuer's endpoints from its discovery document (`/.well-known/openid-configuration`) and cache it for one hour, and MAY read the claims of tokens received directly from the token endpoint without checking their signature; a login without a `sub` MUST fail.
 - **FR-033**: System MUST NOT write a refresh token, a device code or an access token to a log, a reply or an error.
+- **FR-034**: System MUST show the `/login` message with a **Sign in** button that opens the verification address (the complete one when offered) and a **Copy code** button that copies the user code, and keep the code and the minutes remaining in the text; when Telegram refuses the button address it MUST send the message again with the address in the text.
 
 
 ### Key Entities

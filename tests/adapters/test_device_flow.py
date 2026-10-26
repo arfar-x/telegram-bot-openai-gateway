@@ -18,6 +18,7 @@ from tests.adapters.test_bot import update
 from tests.fakes import FakeBot, FakeStore, FakeVault, ScriptedLlm, settle
 
 # Covers: AS-06, AS-07, FR-LNK-11, FR-LNK-12, FR-LNK-13, FR-LNK-14, FR-LNK-15, FR-LNK-16, FR-LNK-17, FR-LNK-18
+# Covers: FR-LNK-19
 # Covers: FR-CMD-08, FR-CMD-09, FR-CMD-10, FR-CFG-05, FR-LNK-10, FR-LNK-01
 
 
@@ -97,7 +98,10 @@ async def test_login_poll_message_refresh_and_logout_against_the_issuer():
     f = Flow()
     await f.say(handlers.cmd_login, "/login")
     shown = f.replies()[0]
-    assert "idp.test/realms/r/device?user_code=WDJB-MJHT" in shown and "WDJB-MJHT" in shown and "10 minutes" in shown
+    assert "WDJB-MJHT" in shown and "10 minutes" in shown and "DEVICE-SECRET" not in shown
+    rows = f.bot.sent[0]["reply_markup"].inline_keyboard                 # nothing to copy by hand
+    assert rows[0][0].text == "Sign in" and rows[0][0].url == "https://idp.test/realms/r/device?user_code=WDJB-MJHT"
+    assert rows[1][0].text == "Copy code" and rows[1][0].copy_text.text == "WDJB-MJHT"
     assert "DEVICE-SECRET" not in shown
     await settle(lambda: f.ticker.delays)
     assert f.ticker.delays == [5]
@@ -294,3 +298,13 @@ async def test_an_issuer_without_revocation_still_signs_the_user_out_and_says_so
     await f.say(handlers.cmd_logout, "/logout", message_id=30)
     assert f.store.links == {} and "no revocation" in f.replies()[-1]
     await f.close()
+
+
+async def test_the_address_is_sent_as_text_when_telegram_refuses_the_button():
+    from telegram.error import BadRequest
+
+    f = Flow()
+    f.bot.fail_next.append(BadRequest("Wrong HTTP URL"))
+    await f.say(handlers.cmd_login, "/login")
+    shown = f.replies()[0]
+    assert "idp.test/realms/r/device?user_code=WDJB-MJHT" in shown and "reply_markup" not in f.bot.sent[0]

@@ -7,6 +7,8 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
+from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
+
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender, Target
 from telegram_bot_gateway.application import linking
 from telegram_bot_gateway.application.model import DeviceLogin
@@ -23,12 +25,30 @@ ENDINGS = {
 }
 
 
+def _minutes(login: DeviceLogin, now: float) -> str:
+    minutes = oidc.minutes_left(login.expires_at, now)
+    return f"{minutes} minute{'' if minutes == 1 else 's'}"
+
+
+def sign_in_card(login: DeviceLogin, now: float) -> tuple[str, InlineKeyboardMarkup]:
+    """The sign-in message with a button that opens the page and one that copies the code, so nothing is typed."""
+    step = ("Tap Sign in and approve in the page that opens." if login.verification_uri_complete
+            else "Tap Sign in, then enter this code in the page that opens.")
+    text = (f"{step}\nYour code: `{login.user_code}`\nIt expires in {_minutes(login, now)}. "
+            "I will tell you when you are signed in.")
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Sign in", url=login.verification_uri_complete or login.verification_uri)],
+        [InlineKeyboardButton("Copy code", copy_text=CopyTextButton(login.user_code))],
+    ])
+    return text, markup
+
+
 def instructions(login: DeviceLogin, now: float) -> str:
+    """The same message as plain text with the address in it, for when Telegram refuses the button."""
     where = login.verification_uri_complete or login.verification_uri
     code = "" if login.verification_uri_complete else f" and enter the code `{login.user_code}`"
     shown = f"Code: `{login.user_code}`\n" if login.verification_uri_complete else ""
-    minutes = oidc.minutes_left(login.expires_at, now)
-    return (f"To sign in, open {where}{code}.\n{shown}It expires in {minutes} minute{'' if minutes == 1 else 's'}. "
+    return (f"To sign in, open {where}{code}.\n{shown}It expires in {_minutes(login, now)}. "
             "I will tell you when you are signed in.")
 
 

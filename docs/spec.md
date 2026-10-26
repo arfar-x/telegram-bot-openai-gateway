@@ -83,6 +83,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-LNK-16 | `/logout` MUST revoke the refresh token at the issuer's revocation endpoint when it advertises one (RFC 7009), then delete the link whether or not revocation succeeded, and say which happened. | done |
 | FR-LNK-17 | `LINK_MODE=pairing` (the default) MUST behave exactly as before. In device mode an unlinked user's private message MUST get an invitation to `/login` and no pairing code; links made by pairing MUST keep working; `/login` by a pairing-linked user MUST replace that link. | done |
 | FR-LNK-18 | Endpoints MUST come from the issuer's discovery document (`/.well-known/openid-configuration`, cached for one hour). Claims of tokens received directly from the token endpoint over TLS MAY be read without checking their signature; `sub` MUST be present or the login fails. Refresh tokens, device codes and access tokens MUST NOT appear in a log, a reply or an error. | done |
+| FR-LNK-19 | `/login` MUST present the sign-in as buttons, so that nothing has to be copied by hand: a **Sign in** button that opens the verification address (the complete one when the issuer offers it) and a **Copy code** button that puts the user code on the clipboard, with the code and the minutes remaining in the message text. If Telegram refuses the button address, the same message MUST be sent again with the address as text. | done |
 
 ### 5.2 Sessions — `FR-SES`
 
@@ -298,6 +299,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-LNK-16 | 001/FR-029 |
 | FR-LNK-17 | 001/FR-030, 001/FR-031 |
 | FR-LNK-18 | 001/FR-032, 001/FR-033 |
+| FR-LNK-19 | 001/FR-034 |
 | FR-SES-01 | 002/FR-019 |
 | FR-SES-02 | 002/FR-001, 002/FR-002, 002/FR-018 |
 | FR-SES-03 | 002/FR-017, 002/FR-018 |

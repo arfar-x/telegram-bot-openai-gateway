@@ -10,14 +10,14 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
-from telegram.error import Conflict
+from telegram.error import BadRequest, Conflict
 from telegram.ext import (
     Application, ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler,
     TypeHandler, filters,
 )
 
 from telegram_bot_gateway.adapters.inbound.telegram import media
-from telegram_bot_gateway.adapters.inbound.telegram.logins import DeviceLogins, instructions
+from telegram_bot_gateway.adapters.inbound.telegram.logins import DeviceLogins, instructions, sign_in_card
 from telegram_bot_gateway.adapters.inbound.telegram.runtime import (
     EXPIRED_PROMPT, LINK_PROMPT, TRY_AGAIN, UNREADABLE_KEY, Job, Runtime, link_prompt,
 )
@@ -319,7 +319,11 @@ async def cmd_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.warning("could not start a sign-in (%s)", exc.__class__.__name__)
         await deps.sender.send(where.target, "The sign-in service is unavailable. Please try again later.")
         return
-    await deps.sender.send(where.target, instructions(login, deps.logins.now()))
+    text, markup = sign_in_card(login, deps.logins.now())
+    try:
+        await deps.sender.send(where.target, text, reply_markup=markup)
+    except BadRequest:      # Telegram refuses a button address it does not accept: give the address as text
+        await deps.sender.send(where.target, instructions(login, deps.logins.now()))
 
 
 async def cmd_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
