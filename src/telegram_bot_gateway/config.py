@@ -47,6 +47,18 @@ class Settings:
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
     oidc_scope: str = "openid offline_access"
+    inbox_url: str = ""
+    inbox_token: str = ""
+    inbox_token_url: str = ""
+    inbox_client_id: str = ""
+    inbox_client_secret: str = ""
+    inbox_poll_interval: float = 5.0
+    inbox_lease_limit: int = 10
+    inbox_lease_seconds: int = 60
+
+    @property
+    def inbox_enabled(self) -> bool:
+        return bool(self.inbox_url)
 
     @property
     def device_mode(self) -> bool:
@@ -69,6 +81,10 @@ class Settings:
             absent = [n for n in ("OIDC_ISSUER", "OIDC_CLIENT_ID") if not env.get(n)]
             if absent:
                 raise ConfigError("LINK_MODE=device needs: " + ", ".join(absent))
+        if env.get("INBOX_URL") and not env.get("INBOX_TOKEN"):
+            absent = [n for n in ("INBOX_TOKEN_URL", "INBOX_CLIENT_ID", "INBOX_CLIENT_SECRET") if not env.get(n)]
+            if absent:
+                raise ConfigError("INBOX_URL needs INBOX_TOKEN, or all of: INBOX_TOKEN_URL, INBOX_CLIENT_ID, INBOX_CLIENT_SECRET")
         try:
             enabled = tools.parse_names(env.get("TOOLS", ""))
         except ValueError as exc:
@@ -102,4 +118,12 @@ class Settings:
             oidc_client_id=env.get("OIDC_CLIENT_ID", ""),
             oidc_client_secret=env.get("OIDC_CLIENT_SECRET", ""),
             oidc_scope=env.get("OIDC_SCOPE") or "openid offline_access",
+            inbox_url=env.get("INBOX_URL", "").rstrip("/"),
+            inbox_token=env.get("INBOX_TOKEN", ""),
+            inbox_token_url=env.get("INBOX_TOKEN_URL", ""),
+            inbox_client_id=env.get("INBOX_CLIENT_ID", ""),
+            inbox_client_secret=env.get("INBOX_CLIENT_SECRET", ""),
+            inbox_poll_interval=float(env.get("INBOX_POLL_INTERVAL") or 5),
+            inbox_lease_limit=int(env.get("INBOX_LEASE_LIMIT") or 10),
+            inbox_lease_seconds=int(env.get("INBOX_LEASE_SECONDS") or 60),
         )

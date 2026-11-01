@@ -49,6 +49,16 @@ class Store(Protocol):
     async def get_text(self, chat_id: int, message_id: int) -> str | None: ...
     async def prune_texts(self, *, older_than_days: int) -> int: ...
 
+    async def inbox_delivered(self, item_id: str) -> str | None:
+        """The external ref an inbox item was delivered under, or None when it was not delivered."""
+        ...
+    async def save_inbox_delivered(self, item_id: str, external_ref: str) -> None: ...
+    async def prune_inbox_deliveries(self, *, older_than_days: int) -> int: ...
+    async def save_inbox_reply(self, chat_id: int, message_id: int, ref: str) -> None: ...
+    async def inbox_reply_ref(self, chat_id: int, message_id: int) -> str | None:
+        """The reply ref an inbox message was delivered with, or None."""
+        ...
+
 
 class Vault(Protocol):
     def encrypt(self, plaintext: str) -> str: ...
@@ -143,4 +153,59 @@ class IdentityProvider(Protocol):
     async def refresh(self, refresh_token: str) -> Tokens: ...
     async def revoke(self, refresh_token: str) -> bool:
         """True when revoked; False when the issuer advertises no revocation endpoint."""
+        ...
+
+
+class InboxError(Exception):
+    """The message inbox did not answer usefully (network error, 5xx, an unexpected reply); trying again may work."""
+
+
+class DeliveryFailed(Exception):
+    """An inbox item could not be delivered; the service should offer it again after ``retry_in`` seconds."""
+
+    def __init__(self, reason: str, retry_in: int = 30) -> None:
+        super().__init__(reason)
+        self.reason, self.retry_in = reason, retry_in
+
+
+@dataclass(frozen=True)
+class Press:
+    """What the inbox answered to a button press: decided, forbidden, already_decided, gone, unauthorized or failed."""
+
+    outcome: str
+
+
+@dataclass(frozen=True)
+class ReplyResult:
+    """What the inbox answered to a person's reply: ``ok``, and otherwise ``message`` to show them."""
+
+    ok: bool
+    message: str = ""
+
+
+class Inbox(Protocol):
+    """An optional HTTP message inbox: a service the bot pulls messages from and reports presses to.
+
+    Nothing a bearer carries is ever logged.
+    """
+
+    async def lease(self, limit: int, lease_seconds: int) -> list[dict[str, Any]]: ...
+    async def ack(self, item_id: str, external_ref: str) -> None: ...
+    async def release(self, item_id: str, retry_in: int, error: str) -> None: ...
+    async def press(self, bearer: str, button: str) -> Press: ...
+    async def reply(self, bearer: str, ref: str, text: str) -> ReplyResult: ...
+    async def link(self, code: str, address: str, label: str) -> bool:
+        """True when the code linked the chat; False when it is not valid or has expired."""
+        ...
+
+
+class Messenger(Protocol):
+    """Telegram, as far as the inbox is concerned. Each raises DeliveryFailed when it cannot."""
+
+    async def send_text(self, chat_id: int, text: str) -> str: ...
+    async def send_buttons(self, chat_id: int, text: str, buttons: list[tuple[str, str]]) -> str:
+        """A message with one button per (label, callback data); returns its external ref."""
+        ...
+    async def replace(self, chat_id: int, message_id: int, text: str) -> None:
+        """Replace a message's text and remove its buttons."""
         ...

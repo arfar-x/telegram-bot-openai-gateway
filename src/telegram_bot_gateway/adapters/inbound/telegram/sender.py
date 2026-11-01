@@ -42,13 +42,14 @@ class Sender:
     async def send(self, target: Target, text: str, *, notify: bool = True, reply_markup: Any = None) -> list[int]:
         """Send ``text`` as one or more messages; returns their ids."""
         ids: list[int] = []
-        for index, chunk in enumerate(render(text)):
+        chunks = render(text)
+        for index, chunk in enumerate(chunks):
             base: dict[str, Any] = {"chat_id": target.chat_id, "disable_notification": not notify}
             if target.thread_id is not None:
                 base["message_thread_id"] = target.thread_id
             if index == 0 and target.replies:
                 base["reply_parameters"] = ReplyParameters(target.reply_to, allow_sending_without_reply=True)
-            if reply_markup is not None and index == 0:
+            if reply_markup is not None and index == len(chunks) - 1:  # the buttons sit under the last piece, where the eye ends
                 base["reply_markup"] = reply_markup
             message = await self._with_fallbacks(self._bot.send_message, base, chunk)
             ids.append(message.message_id)

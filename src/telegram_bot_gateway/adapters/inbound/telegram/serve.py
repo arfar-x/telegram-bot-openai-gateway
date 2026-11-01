@@ -8,14 +8,17 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
 from telegram import Update
 from telegram.ext import Application
 
 from telegram_bot_gateway.adapters.inbound.telegram import bot
+from telegram_bot_gateway.adapters.inbound.telegram.inbox import InboxPoller, TelegramMessenger
 from telegram_bot_gateway.adapters.inbound.telegram.logins import DeviceLogins
 from telegram_bot_gateway.adapters.inbound.telegram.runtime import Runtime
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender
 from telegram_bot_gateway.adapters.outbound.crypto import Vault
+from telegram_bot_gateway.adapters.outbound.inbox import HttpInbox, ServiceToken
 from telegram_bot_gateway.adapters.outbound.oidc import IssuerMisconfigured, OidcIdentity
 from telegram_bot_gateway.adapters.outbound.openai import OpenAIChat
 from telegram_bot_gateway.adapters.outbound.postgres import PostgresStore
@@ -63,13 +66,31 @@ def serve(config: Settings) -> None:
         if identity is not None:
             logins = DeviceLogins(store=store, vault=vault, identity=identity, bearer=bearer, sender=sender)
             log.info("resuming %s sign-in(s) in progress", await logins.resume())
-        app.bot_data["deps"] = bot.Deps(config, store, llm, vault, sender, runtime, identity, logins, bearer)
+        inbox = None
+        if config.inbox_enabled:
+            http = httpx.AsyncClient(timeout=15)
+            token = ServiceToken(
+                config.inbox_token, token_url=config.inbox_token_url, client_id=config.inbox_client_id,
+                client_secret=config.inbox_client_secret, client=http,
+            )
+            inbox = HttpInbox(config.inbox_url, token, http)
+            poller = InboxPoller(
+                inbox, store, TelegramMessenger(sender), interval=config.inbox_poll_interval,
+                limit=config.inbox_lease_limit, lease_seconds=config.inbox_lease_seconds,
+            )
+            poller.start()
+            app.bot_data["inbox_poller"] = poller
+            log.info("message inbox enabled, polling every %ss", config.inbox_poll_interval)
+        app.bot_data["deps"] = bot.Deps(config, store, llm, vault, sender, runtime, identity, logins, bearer, inbox)
         await app.bot.set_my_commands(bot.menu(config))
         app.bot_data["heartbeat"] = asyncio.create_task(_heartbeat(config.health_file, app.bot))
         app.bot_data["housekeeping"] = asyncio.create_task(_housekeeping(store, config.message_text_days))
         log.info("ready as @%s", app.bot.username)
 
     async def post_stop(app: Application) -> None:
+        poller = app.bot_data.get("inbox_poller")
+        if poller:
+            await poller.stop()
         deps = app.bot_data.get("deps")
         if deps:
             await deps.runtime.shutdown()
@@ -82,6 +103,8 @@ def serve(config: Settings) -> None:
             await deps.llm.close()
             if deps.identity:
                 await deps.identity.close()
+            if deps.inbox:
+                await deps.inbox.close()
             await deps.store.close()
 
     app = build_application(config, post_init, post_stop, post_shutdown)
@@ -116,6 +139,7 @@ async def _housekeeping(store: Any, text_days: int) -> None:
             texts = await store.prune_texts(older_than_days=text_days)
             codes = await store.prune_pairings(before=time.time() - pairing.TTL_SECONDS)
             await store.prune_device_logins(before=time.time())
+            await store.prune_inbox_deliveries(older_than_days=text_days)
             log.info("housekeeping removed %s message text(s) and %s expired code(s)", texts, codes)
         except Exception:
             log.exception("housekeeping failed")

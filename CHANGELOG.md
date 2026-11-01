@@ -7,7 +7,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
 ### Added
+
+- An optional message inbox, off unless `INBOX_URL` is set: the bot leases items from an HTTP service
+  (`INBOX_POLL_INTERVAL`, `INBOX_LEASE_LIMIT`, `INBOX_LEASE_SECONDS`; a bearer from `INBOX_TOKEN` or from
+  OAuth 2.0 client credentials `INBOX_TOKEN_URL`, `INBOX_CLIENT_ID`, `INBOX_CLIENT_SECRET`) and delivers them to
+  chats as text, as messages with approval buttons, or as an edit of an earlier message. It acknowledges
+  each delivery and releases a failed one with a retry delay. A button press is reported under the pressing
+  person's own sign-in, and `/link CODE` in a private chat links the chat with the service. A person's Telegram reply to a delivered message can be passed back to the service instead of the chat
+  agent, and `question` items show choice buttons. Specified in `specs/008-message-inbox`. Applies migrations
+  `003_inbox_deliveries.sql` and `004_inbox_replies.sql`.
 
 - Device sign-in as a second way to link: with `LINK_MODE=device`, `/login` shows an address and a code, the
   person approves at an OpenID Connect issuer (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
@@ -23,6 +34,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Answers can use underline (`<u>x</u>`) and spoiler (`||x||`).
 
 ### Changed
+
+- A question or approval card is one message with its buttons under the whole text (long text is shortened); on a long message the buttons sit on the last piece, not the first.
 
 - The system note asks for plain text by default and for marks (bold, `code`, underline, strike,
   spoiler) only where they help the reader.
@@ -44,5 +57,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The known defects and gaps recorded in the specs.
 
-[Unreleased]: https://github.com/arfar-x/telegram-bot-openai-gateway/compare/9d7fdcc...HEAD
+[Unreleased]: https://github.com/arfar-x/telegram-bot-openai-gateway/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/arfar-x/telegram-bot-openai-gateway/compare/9d7fdcc...v0.2.0
 [0.1.0]: https://github.com/arfar-x/telegram-bot-openai-gateway/commits/9d7fdcc

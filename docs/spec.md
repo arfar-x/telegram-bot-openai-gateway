@@ -4,8 +4,8 @@
 |---|---|
 | **Spec ID** | SPEC-TG-001 |
 | **Status** | Implemented; not yet run against the live Telegram API |
-| **Version** | 0.5.0 |
-| **Last updated** | 2026-10-21 |
+| **Version** | 0.6.0 |
+| **Last updated** | 2026-10-31 |
 | **Implements** | this repository |
 | **Related** | [`specs/`](../specs/glossary.md) |
 
@@ -146,6 +146,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-OUT-10 | Telegram flood control MUST be honored by waiting the `retry_after` it states. | done |
 | FR-OUT-11 | An empty answer MUST send nothing and MUST NOT count as a failure. | done |
 | FR-OUT-12 | A send that failed because the connection could not be made MUST be retried after 1, 2, 4 and 8 seconds, a timed-out send MUST NOT, and the session MUST be saved only after the reply was sent. | done |
+| FR-OUT-13 | A message with inline buttons that is split MUST carry them on its last piece, and the text of a question or approval card MUST be kept to one message (3500 characters) so the buttons sit under all of it. | done |
 
 ### 5.6 Questions and approvals — `FR-ASK`
 
@@ -213,6 +214,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-CFG-03 | A missing required variable MUST stop the start with a message naming it. | done |
 | FR-CFG-04 | Variables for device mode: `LINK_MODE` (`pairing` default, or `device`), `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (optional; for a confidential client), `OIDC_SCOPE` (default `openid offline_access`). `OIDC_ISSUER` and `OIDC_CLIENT_ID` are required when `LINK_MODE=device`. | done |
 | FR-CFG-05 | In device mode the bot MUST fail to start if the issuer's discovery document has no device authorization endpoint; an issuer that cannot be reached at start MUST give a warning, and `/login` MUST then tell the user the sign-in service is unavailable. `OPENAI_API_KEY` is optional in device mode. | done |
+| FR-CFG-06 | Variables for the inbox: `INBOX_URL`, `INBOX_TOKEN` or (`INBOX_TOKEN_URL`, `INBOX_CLIENT_ID`, `INBOX_CLIENT_SECRET`), `INBOX_POLL_INTERVAL`, `INBOX_LEASE_LIMIT`, `INBOX_LEASE_SECONDS`. With `INBOX_URL` set and no usable credentials the start MUST fail naming them. | done |
 
 ### 5.10 Architecture — `NFR-ARC`
 
@@ -222,6 +224,23 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | NFR-ARC-02 | The repository MUST carry its own compose file, env template, make targets, scripts and docs. | done |
 | NFR-ARC-03 | The service MUST publish no port, and its database role MUST reach only its own database. | done |
 | NFR-ARC-04 | The repository MUST run on its own, with no file outside it and no dependency on any other product. | done |
+
+### 5.11 Message inbox — `FR-INX`
+
+| id | Requirement | Status |
+|---|---|---|
+| FR-INX-01 | The inbox MUST be off unless `INBOX_URL` is set: no polling, no `/link` command, no button handling. | done |
+| FR-INX-02 | With it on, the bot MUST call `POST {INBOX_URL}/outbox/lease` every `INBOX_POLL_INTERVAL` seconds (default 5) with `INBOX_LEASE_LIMIT` and `INBOX_LEASE_SECONDS`, under a service bearer: `INBOX_TOKEN`, or an OAuth 2.0 client-credentials token cached until a minute before expiry and fetched again when the service refuses it. A failing service MUST be waited out, not stop the bot. | done |
+| FR-INX-03 | An item of kind `text` MUST be sent as a message (split when long); `approval` as a message with an inline keyboard built from `buttons` (label from `label`, callback data the button id behind the prefix `i:`); `update` as an edit of the message its `external_ref` (`<chat_id>:<message_id>`) names, replacing the text and removing the keyboard. | done |
+| FR-INX-04 | After a delivery the bot MUST call `POST /outbox/{id}/ack` with `external_ref` `<chat_id>:<message_id>`; when it fails, `POST /outbox/{id}/release` with a retry delay, which MUST be Telegram's own when it asked the bot to wait. | done |
+| FR-INX-05 | The ids of delivered items MUST be kept in the bot's database (migration `003`); an item offered again MUST be acknowledged under its first reference and not sent again. | done |
+| FR-INX-06 | A press on an inbox button MUST be sent to `POST /buttons/press` as `{"button": <id>}` under the pressing person's own bearer, and answered in a short alert: 200 decided, 403 not allowed, 409 `already_decided` already decided, 404 no longer exists, 401 sign in again, otherwise try again. | done |
+| FR-INX-07 | A press by a person with no usable link MUST reach nothing and give the normal "link first" answer. No bearer MUST appear in a log. | done |
+| FR-INX-08 | `/link CODE` MUST work in a private chat only: it calls `POST /outbox/link` with the service bearer and `{code, address: <chat id>, label: <username>}` and says it linked or that the code is not valid or has expired. | done |
+| FR-INX-10 | An item of kind `question` MUST be delivered like an `approval`: one message with a button per entry; a press takes the same path as any inbox button. | done |
+| FR-INX-11 | When an item carries a non-empty `reply`, the bot MUST keep (chat id, message id) → `reply` in its database (migration `004`) once the message is sent. | done |
+| FR-INX-12 | A linked person's reply (Telegram reply-to) to such a message MUST be sent to `POST /replies` as `{ref, text}` under that person's own bearer and MUST NOT reach the chat agent; 2xx is answered "Sent.", a 4xx shows the service's error message, anything else says to try again. A reply to a message with no stored ref MUST behave as before. | done |
+| FR-INX-09 | Each approval MUST be its own message with its own buttons; delivering, pressing or updating one MUST NOT depend on another. | done |
 
 ## 6. Out of scope (v1)
 
@@ -247,7 +266,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
   compose.yaml          # the bot and its own PostgreSQL
   .env.example          # copied to .env by `make setup` (ignored by git)
   docs/spec.md  docs/OPERATOR_GUIDE.md
-  migrations/001_init.sql  002_oidc_links.sql
+  migrations/001_init.sql  002_oidc_links.sql  003_inbox_deliveries.sql  004_inbox_replies.sql
   scripts/              # prepare.sh, test-services.sh, lib/env.sh
   specs/                # capability specs and glossary
   .specify/memory/constitution.md
@@ -278,6 +297,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | `005-questions-and-approvals` | The `clarify` tool, cards, answers, expiry |
 | `006-operations` | Configuration, start-up, health, deployment, database role |
 | `007-client-tools` | The tools the bot carries out itself: approval, files, images, buttons, notes, reactions, context |
+| `008-message-inbox` | The optional message inbox: leasing, delivering, acknowledging, button presses, `/link` |
 
 | Id here | Specified in |
 |---|---|
@@ -342,6 +362,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-OUT-10 | 004/FR-015 |
 | FR-OUT-11 | 004/FR-020, 002/FR-007 |
 | FR-OUT-12 | 004/FR-022, 002/FR-008 |
+| FR-OUT-13 | 004/FR-006 |
 | FR-ASK-01 | 005 `contracts/clarify-tool.md`, 005/FR-001 |
 | FR-ASK-02 | 005/FR-003 |
 | FR-ASK-03 | 005/FR-005, 005/FR-008, 005/FR-009 |
@@ -384,6 +405,8 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-CFG-03 | 006/FR-002 |
 | FR-CFG-04 | 006/FR-024 |
 | FR-CFG-05 | 006/FR-025 |
+| FR-CFG-06 | 008 Contract |
+| FR-INX-01 to FR-INX-12 | 008 User Stories 1 to 3 and Contract |
 | NFR-ARC-01 to NFR-ARC-04 | constitution I, III, V and each plan's Constitution Check |
 | AS-01 | 002 User Story 1 |
 | AS-02 | 001 User Stories 1 and 3 |

@@ -178,6 +178,14 @@ class Chunk:
     plain: str
 
 
+CARD_LIMIT = 3500
+
+
+def shorten_card(text: str, limit: int = CARD_LIMIT) -> str:
+    """A card's text kept in one message, so its buttons sit under all of it and an edit still fits."""
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def render(text: str, limit: int = TELEGRAM_LIMIT) -> list[Chunk]:
     """The answer as chunks that each fit Telegram, each in MarkdownV2 and in plain text."""
     budget = limit - SUFFIX_RESERVE

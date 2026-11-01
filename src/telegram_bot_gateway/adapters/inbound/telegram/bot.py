@@ -24,10 +24,12 @@ from telegram_bot_gateway.adapters.inbound.telegram.runtime import (
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender, Target
 from telegram_bot_gateway.adapters.outbound.openai import EndpointError
 from telegram_bot_gateway.application import commands, linking
+from telegram_bot_gateway.application import inbox as inbox_app
 from telegram_bot_gateway.application.model import PENDING_TTL_SECONDS, Session
-from telegram_bot_gateway.application.ports import IdentityProvider, IdentityUnavailable, Llm, Store, Vault
+from telegram_bot_gateway.application.ports import IdentityProvider, IdentityUnavailable, Inbox, InboxError, Llm, Store, Vault
 from telegram_bot_gateway.config import Settings
 from telegram_bot_gateway.domain import batching, content, settings
+from telegram_bot_gateway.domain.formatting import shorten_card
 from telegram_bot_gateway.domain.session import effective_thread_id, session_key
 from telegram_bot_gateway.domain.triggers import Incoming, is_trigger
 
@@ -52,12 +54,14 @@ MENU = [
     BotCommand("settings", "Show current settings"), BotCommand("whoami", "Show who you are linked as"),
     BotCommand("help", "What I can do"),
 ]
+MENU_INBOX = [BotCommand("link", "Link this chat with a code")]
 MENU_DEVICE = [BotCommand("login", "Sign in"), BotCommand("logout", "Sign out")]
 
 
 def menu(config: Settings) -> list[BotCommand]:
     """The command menu: ``/login`` and ``/logout`` are listed in device mode only."""
-    return [*MENU_DEVICE, *MENU] if config.device_mode else list(MENU)
+    commands_ = [*MENU_DEVICE, *MENU] if config.device_mode else list(MENU)
+    return [*commands_, *MENU_INBOX] if config.inbox_enabled else commands_
 
 
 @dataclass
@@ -71,6 +75,7 @@ class Deps:
     identity: IdentityProvider | None = None
     logins: DeviceLogins | None = None
     bearer: linking.Bearer | None = None
+    inbox: Inbox | None = None
 
     def __post_init__(self) -> None:
         if self.bearer is None:
@@ -187,6 +192,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     text = message.text or message.caption or ""
+    if deps.inbox is not None and await _inbox_reply(deps, message, user.id, text, where):
+        return
     if where.is_group and not flags.mentions_other_bots:
         text = re.sub(rf"@{re.escape(bot.username)}\b", "", text, flags=re.IGNORECASE).strip()
     reply = real_reply(message)
@@ -447,6 +454,9 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     deps = _deps(context)
     kind, _, value = query.data.partition(":")
     message = query.message
+    if kind == "i":
+        await _on_inbox_button(query, deps, value)
+        return
     where = locate(message, query.from_user.id, query.from_user.language_code)
     if kind == "a":
         await _on_answer(query, deps, value)
@@ -476,6 +486,78 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await deps.sender.edit(message.chat.id, message.message_id, reply)
 
 
+INBOX_UNAVAILABLE = "The service did not answer. Try again in a moment."
+
+
+async def _on_inbox_button(query, deps: Deps, button: str) -> None:
+    """A press on an inbox message: reported to the inbox under the pressing person's own bearer."""
+    if deps.inbox is None:
+        await query.answer("This button is no longer active.", show_alert=True)
+        return
+    user_id, message = query.from_user.id, query.message
+    link = await deps.store.get_link(user_id)
+    if link is None or not link.usable:
+        text = _group_notice(deps.config) if message.chat.type != "private" else link_prompt(deps.config, link)
+        await query.answer(text, show_alert=True)
+        return
+    try:
+        bearer = await deps.bearer.for_user(user_id)
+    except (linking.LinkExpired, linking.KeyUnreadable, IdentityUnavailable) as exc:
+        await query.answer(_credential_problem(exc), show_alert=True)
+        return
+    if not bearer:
+        await query.answer(link_prompt(deps.config, link), show_alert=True)
+        return
+    result = await deps.inbox.press(bearer, button)
+    await query.answer(inbox_app.PRESS_TEXTS.get(result.outcome, INBOX_UNAVAILABLE), show_alert=result.outcome != "decided")
+
+
+async def _inbox_reply(deps: Deps, message: Message, user_id: int, text: str, where: Where) -> bool:
+    """A person's reply to a delivered inbox message goes to the inbox, not to the chat agent. False when it is not one."""
+    reply = real_reply(message)
+    if reply is None or not text.strip():
+        return False
+    ref = await deps.store.inbox_reply_ref(message.chat.id, reply.message_id)
+    if ref is None:
+        return False
+    try:
+        bearer = await deps.bearer.for_user(user_id)
+    except (linking.LinkExpired, linking.KeyUnreadable, IdentityUnavailable) as exc:
+        await deps.sender.send(where.target, _credential_problem(exc))
+        return True
+    if not bearer:
+        await deps.sender.send(where.target, link_prompt(deps.config))
+        return True
+    result = await deps.inbox.reply(bearer, ref, text.strip())
+    await deps.sender.send(where.target, "Sent." if result.ok else result.message or INBOX_UNAVAILABLE)
+    return True
+
+
+async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    got = await _ctx(update, context)
+    if got is None:
+        return
+    deps, where = got
+    if where.is_group:
+        await deps.sender.send(where.target, "Send /link with your code in a private chat with me.")
+        return
+    code = (context.args or [""])[0].strip()
+    if not code:
+        await deps.sender.send(where.target, "Send /link followed by the code you were given.")
+        return
+    user = update.effective_user
+    try:
+        linked = await deps.inbox.link(code, str(where.target.chat_id), user.username or user.full_name)
+    except InboxError as exc:
+        log.warning("linking a chat failed (%s)", exc)
+        await deps.sender.send(where.target, INBOX_UNAVAILABLE)
+        return
+    await deps.sender.send(
+        where.target,
+        "This chat is linked. Messages meant for you will arrive here." if linked else "That code is not valid or has expired.",
+    )
+
+
 async def _on_answer(query, deps: Deps, value: str) -> None:
     message = query.message
     session = await deps.store.find_pending(message.chat.id, message.message_id)
@@ -499,7 +581,7 @@ async def _on_answer(query, deps: Deps, value: str) -> None:
         await query.answer("Unknown choice.", show_alert=True)
         return
     await query.answer()
-    await deps.sender.edit(message.chat.id, message.message_id, f"{pending.question}\n\n✅ {label}")
+    await deps.sender.edit(message.chat.id, message.message_id, f"{shorten_card(pending.question)}\n\n✅ {label}")
     where = locate(message, query.from_user.id, query.from_user.language_code)
     target = Target(message.chat.id, message.chat.type, where.target.thread_id, None, where.target.language)
     deps.runtime.submit(Job(target, query.from_user.id, session.key, content.Item(label), batching.text_delay(0)))
@@ -544,6 +626,8 @@ def register(app: Application, config: Settings | None = None) -> None:
     if device:
         app.add_handler(CommandHandler("login", cmd_login))
         app.add_handler(CommandHandler("logout", cmd_logout))
-    app.add_handler(CallbackQueryHandler(on_button, pattern=r"^[amrs]:"))
+    if config is not None and config.inbox_enabled:
+        app.add_handler(CommandHandler("link", cmd_link))
+    app.add_handler(CallbackQueryHandler(on_button, pattern=r"^[amrsi]:"))
     app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & ~filters.COMMAND, on_message))
     app.add_error_handler(on_error)

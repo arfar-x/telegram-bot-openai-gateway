@@ -25,6 +25,10 @@ approvals. Specified in [`docs/spec.md`](docs/spec.md) and [`specs/`](specs/glos
   chat (nothing else is run): `request_approval` (Allow / Reject card), `send_file`, `send_image`,
   `send_buttons` (link and copy buttons), `notify` (a silent note), `react` and `get_context`. `TOOLS` chooses
   which; see [`specs/007-client-tools`](specs/007-client-tools/spec.md).
+- **Message inbox (optional).** With `INBOX_URL` set, the bot pulls messages from any compatible HTTP service
+  and delivers them to chats: plain text, approval messages with buttons, and edits of earlier messages. A
+  button press is reported to the service under the pressing person's own sign-in, and `/link CODE` (private
+  chat) tells the service which chat belongs to a person. See [`specs/008-message-inbox`](specs/008-message-inbox/spec.md).
 - **Settings.** `/model`, `/reasoning`, `/set`, `/unset`, `/settings` change what each request sends.
 - **Busy sessions.** Messages sent during a turn are queued and merged into the next one; `/stop` cancels.
 
@@ -94,6 +98,10 @@ Every setting is an environment variable in `.env`; [`.env.example`](.env.exampl
 | `MESSAGE_TEXT_DAYS` | `30` | Days message texts are kept for quoting replies |
 | `MAX_CONCURRENT_TURNS` | `2` | Turns one person may have running at once across chats |
 | `TELEGRAM_PROXY`, `TELEGRAM_CONNECT_TIMEOUT`, `TELEGRAM_READ_TIMEOUT` | empty, `20`, `30` | Reaching Telegram from a slow or filtered network |
+| `INBOX_URL` | empty (off) | Base address of the message inbox, for example `https://host/api/v1` |
+| `INBOX_TOKEN` | empty | Static bearer the bot presents to the inbox; or use the three below instead |
+| `INBOX_TOKEN_URL`, `INBOX_CLIENT_ID`, `INBOX_CLIENT_SECRET` | empty | OAuth 2.0 client credentials for that bearer (cached, fetched again when it expires or is refused) |
+| `INBOX_POLL_INTERVAL`, `INBOX_LEASE_LIMIT`, `INBOX_LEASE_SECONDS` | `5`, `10`, `60` | Seconds between polls, items per poll, and how long the bot holds an item before the service offers it again |
 | `WEBHOOK_URL`, `WEBHOOK_SECRET` | empty | Webhook instead of long polling (the secret is required with the URL); see `compose.webhook.yaml` |
 
 Operating it day to day, backups and troubleshooting: [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md).

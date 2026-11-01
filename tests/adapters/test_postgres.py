@@ -18,7 +18,7 @@ async def store():
     if not URL:
         pytest.skip("BOT_TEST_DATABASE_URL not set (scripts/test-services.sh)")
     s = await PostgresStore.open(URL, MIGRATIONS)
-    for table in ("links", "pairing_codes", "sessions", "message_texts", "device_logins"):
+    for table in ("links", "pairing_codes", "sessions", "message_texts", "device_logins", "inbox_deliveries", "inbox_replies"):
         await s._run(f"DELETE FROM {table}")
     yield s
     await s.close()
@@ -27,7 +27,7 @@ async def store():
 async def test_migrations_apply_once_and_reopening_is_harmless(store):
     again = await PostgresStore.open(URL, MIGRATIONS)
     names = [r["name"] for r in await again._rows("SELECT name FROM schema_migrations")]
-    assert names == ["001_init.sql", "002_oidc_links.sql"]
+    assert names == ["001_init.sql", "002_oidc_links.sql", "003_inbox_deliveries.sql", "004_inbox_replies.sql"]
     await again.close()
 
 
@@ -128,3 +128,14 @@ async def test_device_logins_are_one_per_user_replaced_pruned_and_deleted_by_cod
     await store.save_device_login(login)
     await store.delete_device_login(5)
     assert await store.get_device_login(5) is None
+
+
+async def test_inbox_deliveries_are_remembered_once_and_pruned(store):
+    # Covers: FR-INX-05, FR-INX-11
+    assert await store.inbox_delivered("i1") is None
+    await store.save_inbox_delivered("i1", "5:100")
+    await store.save_inbox_delivered("i1", "5:200")
+    assert await store.inbox_delivered("i1") == "5:100"
+    assert await store.prune_inbox_deliveries(older_than_days=1) == 0
+    await store.save_inbox_reply(5, 100, "ask:1")
+    assert await store.inbox_reply_ref(5, 100) == "ask:1" and await store.inbox_reply_ref(5, 101) is None

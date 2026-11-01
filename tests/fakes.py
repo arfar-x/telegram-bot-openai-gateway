@@ -29,6 +29,8 @@ class FakeStore:
         self.sessions: dict[str, Session] = {}
         self.texts: dict[tuple[int, int], str] = {}
         self.logins: dict[int, DeviceLogin] = {}
+        self.deliveries: dict[str, str] = {}
+        self.reply_refs: dict[tuple[int, int], str] = {}
 
     async def get_link(self, uid): return self.links.get(uid)
     async def save_link(self, link): self.links[link.telegram_user_id] = link
@@ -97,6 +99,12 @@ class FakeStore:
     async def save_text(self, chat_id, message_id, text): self.texts[(chat_id, message_id)] = text
     async def get_text(self, chat_id, message_id): return self.texts.get((chat_id, message_id))
     async def prune_texts(self, *, older_than_days): return 0
+
+    async def inbox_delivered(self, item_id): return self.deliveries.get(item_id)
+    async def save_inbox_delivered(self, item_id, external_ref): self.deliveries.setdefault(item_id, external_ref)
+    async def save_inbox_reply(self, chat_id, message_id, ref): self.reply_refs[(chat_id, message_id)] = ref
+    async def inbox_reply_ref(self, chat_id, message_id): return self.reply_refs.get((chat_id, message_id))
+    async def prune_inbox_deliveries(self, *, older_than_days): return 0
 
 
 class FakeIdentity:

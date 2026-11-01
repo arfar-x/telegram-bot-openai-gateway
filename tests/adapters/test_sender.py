@@ -70,3 +70,11 @@ async def test_no_reply_in_a_group_topic_and_silent_messages():
     assert "reply_parameters" not in bot.sent[0] and bot.sent[0]["disable_notification"] is True
     await sender.send(Target(2, "private", 7, 5), "hi")  # DM topics do reply
     assert bot.sent[1]["reply_parameters"].message_id == 5
+
+
+async def test_buttons_sit_under_the_last_piece_of_a_long_message():
+    # Covers: FR-OUT-13
+    bot, store = FakeBot(), FakeStore()
+    markup = object()
+    ids = await Sender(bot, store).send(Target(5, "private"), "word " * 3000, reply_markup=markup)
+    assert len(ids) > 1 and [m.get("reply_markup") for m in bot.sent] == [None] * (len(ids) - 1) + [markup]

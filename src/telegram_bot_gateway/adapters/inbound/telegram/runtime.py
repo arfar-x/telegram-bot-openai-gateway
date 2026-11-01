@@ -17,6 +17,7 @@ from telegram_bot_gateway.application import linking, turn
 from telegram_bot_gateway.application.model import Session
 from telegram_bot_gateway.application.ports import IdentityUnavailable, Llm, Store, Vault
 from telegram_bot_gateway.config import Settings
+from telegram_bot_gateway.domain.formatting import shorten_card
 from telegram_bot_gateway.domain.content import Item, merge
 from telegram_bot_gateway.domain.prompt import telegram_context
 
@@ -232,9 +233,9 @@ class Runtime:
             else:
                 q = outcome.question
                 ids = await self._sender.send(
-                    target, notices + q.text, reply_markup=card_markup(list(q.options), with_other=q.show_other)
+                    target, shorten_card(notices + q.text), reply_markup=card_markup(list(q.options), with_other=q.show_other)
                 )
-                work.pending.card_message_id = ids[0]
+                work.pending.card_message_id = ids[-1]
             fresh = await self._store.load_session(key)  # settings changed during the turn win
             if fresh is not None:
                 work.model, work.params = fresh.model, fresh.params

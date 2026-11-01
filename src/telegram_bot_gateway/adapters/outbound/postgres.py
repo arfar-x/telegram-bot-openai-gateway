@@ -189,6 +189,33 @@ class PostgresStore:
         rows = await self._rows("SELECT text FROM message_texts WHERE chat_id = %s AND message_id = %s", (chat_id, message_id))
         return rows[0]["text"] if rows else None
 
+    # inbox deliveries
+    async def inbox_delivered(self, item_id: str) -> str | None:
+        rows = await self._rows("SELECT external_ref FROM inbox_deliveries WHERE item_id = %s", (item_id,))
+        return rows[0]["external_ref"] if rows else None
+
+    async def save_inbox_delivered(self, item_id: str, external_ref: str) -> None:
+        await self._run(
+            "INSERT INTO inbox_deliveries (item_id, external_ref) VALUES (%s, %s) ON CONFLICT (item_id) DO NOTHING",
+            (item_id, external_ref),
+        )
+
+    async def save_inbox_reply(self, chat_id: int, message_id: int, ref: str) -> None:
+        await self._run(
+            "INSERT INTO inbox_replies (chat_id, message_id, ref) VALUES (%s, %s, %s) "
+            "ON CONFLICT (chat_id, message_id) DO UPDATE SET ref = EXCLUDED.ref",
+            (chat_id, message_id, ref),
+        )
+
+    async def inbox_reply_ref(self, chat_id: int, message_id: int) -> str | None:
+        rows = await self._rows("SELECT ref FROM inbox_replies WHERE chat_id = %s AND message_id = %s", (chat_id, message_id))
+        return rows[0]["ref"] if rows else None
+
+    async def prune_inbox_deliveries(self, *, older_than_days: int) -> int:
+        await self._run("DELETE FROM inbox_replies WHERE created_at < now() - make_interval(days => %s)", (older_than_days,))
+        return await self._run("DELETE FROM inbox_deliveries WHERE delivered_at < now() - make_interval(days => %s)", (older_than_days,))
+
+
 
 _LOGINS = (
     "SELECT telegram_user_id, chat_id, username, telegram_name, device_code_enc, user_code, verification_uri, "
