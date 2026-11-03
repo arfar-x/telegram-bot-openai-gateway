@@ -6,7 +6,7 @@ import pytest
 from telegram_bot_gateway.adapters.outbound.inbox import HttpInbox, ServiceToken
 from telegram_bot_gateway.application.ports import InboxError
 
-# Covers: FR-INX-12, FR-INX-02, FR-INX-04, FR-INX-06, FR-INX-08
+# Covers: FR-INX-13, FR-INX-12, FR-INX-02, FR-INX-04, FR-INX-06, FR-INX-08
 
 BASE = "http://inbox.test/api/v1"
 
@@ -108,3 +108,13 @@ async def test_link_reports_whether_the_code_was_accepted():
     _, inbox, _ = build({"/api/v1/outbox/link": (500, {})}, static="s")
     with pytest.raises(InboxError):
         await inbox.link("X", "55", "ann")
+
+
+async def test_a_press_may_be_answered_with_a_reply_prompt_and_a_broken_one_is_ignored():
+    prompt = {"ref": "ask:7", "text": "Type your answer."}
+    _, inbox, _ = build({"/api/v1/buttons/press": (200, {"approval": {}, "reply_prompt": prompt})}, static="s")
+    press = await inbox.press("p", "qa:7:other")
+    assert press.outcome == "decided" and (press.prompt.ref, press.prompt.text) == ("ask:7", "Type your answer.")
+    for body in ({"approval": {}}, {"reply_prompt": {"ref": "x"}}, {"reply_prompt": "no"}, {"reply_prompt": {"ref": "", "text": "t"}}):
+        _, inbox, _ = build({"/api/v1/buttons/press": (200, body)}, static="s")
+        assert (await inbox.press("p", "b")).prompt is None

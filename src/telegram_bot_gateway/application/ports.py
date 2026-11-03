@@ -54,7 +54,8 @@ class Store(Protocol):
         ...
     async def save_inbox_delivered(self, item_id: str, external_ref: str) -> None: ...
     async def prune_inbox_deliveries(self, *, older_than_days: int) -> int: ...
-    async def save_inbox_reply(self, chat_id: int, message_id: int, ref: str) -> None: ...
+    async def save_inbox_reply(self, chat_id: int, message_id: int, ref: str, *, prompt: bool = False) -> None: ...
+    async def inbox_reply_is_prompt(self, chat_id: int, message_id: int) -> bool: ...
     async def inbox_reply_ref(self, chat_id: int, message_id: int) -> str | None:
         """The reply ref an inbox message was delivered with, or None."""
         ...
@@ -169,10 +170,21 @@ class DeliveryFailed(Exception):
 
 
 @dataclass(frozen=True)
+class ReplyPrompt:
+    """What the inbox asks the bot to collect after a press: ``text`` to show, and the ``ref`` to send the reply under."""
+
+    ref: str
+    text: str
+
+
+@dataclass(frozen=True)
 class Press:
-    """What the inbox answered to a button press: decided, forbidden, already_decided, gone, unauthorized or failed."""
+    """What the inbox answered to a button press: decided, forbidden, already_decided, gone, unauthorized or failed.
+
+    ``prompt`` is set when the person is to type a reply to be sent under its ref."""
 
     outcome: str
+    prompt: ReplyPrompt | None = None
 
 
 @dataclass(frozen=True)

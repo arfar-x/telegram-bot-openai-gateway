@@ -9,7 +9,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram import BotCommand, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import BadRequest, Conflict
 from telegram.ext import (
     Application, ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler,
@@ -509,7 +509,25 @@ async def _on_inbox_button(query, deps: Deps, button: str) -> None:
         await query.answer(link_prompt(deps.config, link), show_alert=True)
         return
     result = await deps.inbox.press(bearer, button)
+    if result.prompt is not None:
+        await _ask_for_reply(query, deps, user_id, result.prompt)
+        return
     await query.answer(inbox_app.PRESS_TEXTS.get(result.outcome, INBOX_UNAVAILABLE), show_alert=result.outcome != "decided")
+
+
+async def _ask_for_reply(query, deps: Deps, user_id: int, prompt) -> None:
+    """The service wants the person's own words: open Telegram's reply box under the pressed message and remember
+    that a reply to it is to be sent under the prompt's ref (FR-INX-13)."""
+    message = query.message
+    where = locate(message, user_id)
+    try:
+        ids = await deps.sender.send(where.target, prompt.text, reply_markup=ForceReply(selective=True))
+        await deps.store.save_inbox_reply(message.chat.id, ids[-1], prompt.ref, prompt=True)
+    except Exception:  # noqa: BLE001 -- the person is told, and can still use Reply on the question itself
+        log.exception("could not ask for a reply")
+        await query.answer("Use Reply on the question message to answer in your own words.", show_alert=True)
+        return
+    await query.answer()
 
 
 async def _inbox_reply(deps: Deps, message: Message, user_id: int, text: str, where: Where) -> bool:
@@ -529,6 +547,13 @@ async def _inbox_reply(deps: Deps, message: Message, user_id: int, text: str, wh
         await deps.sender.send(where.target, link_prompt(deps.config))
         return True
     result = await deps.inbox.reply(bearer, ref, text.strip())
+    if await deps.store.inbox_reply_is_prompt(message.chat.id, reply.message_id):
+        try:
+            await deps.sender.delete(message.chat.id, reply.message_id)      # the prompt has done its job (FR-INX-13)
+        except Exception:  # noqa: BLE001 -- best effort
+            log.info("could not remove the reply prompt")
+        if result.ok:
+            return True                                                      # the question message shows the answer
     await deps.sender.send(where.target, "Sent." if result.ok else result.message or INBOX_UNAVAILABLE)
     return True
 

@@ -10,14 +10,14 @@ from telegram_bot_gateway.adapters.inbound.telegram import bot as handlers
 from telegram_bot_gateway.adapters.inbound.telegram.inbox import InboxPoller, TelegramMessenger
 from telegram_bot_gateway.adapters.inbound.telegram.sender import Sender
 from telegram_bot_gateway.application.model import Link
-from telegram_bot_gateway.application.ports import DeliveryFailed, InboxError, Press
+from telegram_bot_gateway.application.ports import DeliveryFailed, InboxError, Press, ReplyPrompt
 from telegram_bot_gateway.config import ConfigError, Settings
 from tests.adapters.test_bot import Env as BotEnv
 from tests.adapters.test_bot import Query, update
 from telegram_bot_gateway.application.ports import ReplyResult
 from tests.fakes import FakeBot, FakeStore, FakeVault
 
-# Covers: FR-INX-10, FR-INX-11, FR-INX-12, FR-INX-01, FR-INX-02, FR-INX-03, FR-INX-04, FR-INX-05, FR-INX-06, FR-INX-07, FR-INX-08, FR-INX-09, FR-CFG-06
+# Covers: FR-INX-13, FR-INX-10, FR-INX-11, FR-INX-12, FR-INX-01, FR-INX-02, FR-INX-03, FR-INX-04, FR-INX-05, FR-INX-06, FR-INX-07, FR-INX-08, FR-INX-09, FR-CFG-06
 
 
 def settings(**env):
@@ -262,3 +262,62 @@ async def test_a_reply_to_any_other_message_is_handled_as_before():
     await env.link(5)
     await env.send(handlers.on_message, update("and then?", reply=BOT_MESSAGE))
     assert env.inbox.replies == [] and len(env.rec.jobs) == 1
+
+
+# -- reply prompts (FR-INX-13) -----------------------------------------------------------------
+def private_message():
+    return SimpleNamespace(chat=SimpleNamespace(id=5, type="private", is_forum=False), message_id=7,
+                           message_thread_id=None, is_topic_message=False)
+
+
+async def test_a_press_answered_with_a_reply_prompt_opens_the_reply_box_and_remembers_it():
+    from telegram import ForceReply
+
+    env = InboxEnv()
+    env.message = private_message()
+    await env.link(5)
+    env.inbox.press_result = Press("decided", ReplyPrompt("ask:7", "Type your answer here."))
+    answers = await env.press("i:qa:other")
+    assert answers == [(None, False)]                                          # no alert: the reply box is the answer
+    sent = env.bot.sent[0]
+    assert "Type your answer here" in sent["text"] and sent["chat_id"] == 5
+    assert isinstance(sent["reply_markup"], ForceReply) and sent["reply_parameters"].message_id == 7
+    assert env.store.reply_refs[(5, 100)] == "ask:7" and (5, 100) in env.store.prompts
+
+
+async def test_a_reply_to_the_prompt_goes_to_the_service_and_the_prompt_is_removed_without_a_confirmation():
+    env = InboxEnv()
+    await env.link(5)
+    env.store.reply_refs[(5, 100)] = "ask:7"
+    env.store.prompts.add((5, 100))
+    await env.send(handlers.on_message, update("stop, do nothing", reply=BOT_MESSAGE))
+    assert env.inbox.replies == [("k", "ask:7", "stop, do nothing")] and env.rec.jobs == []
+    assert env.bot.deleted == [(5, 100)] and env.replies() == []              # the question message shows the answer
+
+
+async def test_a_refused_reply_to_the_prompt_still_removes_it_and_says_why():
+    env = InboxEnv()
+    await env.link(5)
+    env.store.reply_refs[(5, 100)] = "ask:7"
+    env.store.prompts.add((5, 100))
+    env.inbox.reply_result = ReplyResult(False, "Already answered.")
+    await env.send(handlers.on_message, update("late", reply=BOT_MESSAGE))
+    assert env.bot.deleted == [(5, 100)] and env.replies() == ["Already answered."]
+
+
+async def test_a_reply_to_the_question_itself_never_deletes_it():
+    env = InboxEnv()
+    await env.link(5)
+    env.store.reply_refs[(5, 100)] = "ask:7"
+    await env.send(handlers.on_message, update("the second one", reply=BOT_MESSAGE))
+    assert env.bot.deleted == [] and env.replies() == ["Sent."]
+
+
+async def test_when_the_prompt_cannot_be_sent_the_person_is_told_to_use_reply():
+    env = InboxEnv()
+    env.message = private_message()
+    await env.link(5)
+    env.inbox.press_result = Press("decided", ReplyPrompt("ask:7", "Type here."))
+    env.bot.fail_next = [RuntimeError("boom")]
+    (text, alert), = await env.press("i:qa:other")
+    assert "Use Reply" in text and alert is True and env.store.reply_refs == {}

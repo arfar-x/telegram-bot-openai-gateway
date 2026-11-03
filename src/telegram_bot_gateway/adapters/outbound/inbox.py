@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from telegram_bot_gateway.application.ports import InboxError, Press, ReplyResult
+from telegram_bot_gateway.application.ports import InboxError, Press, ReplyResult, ReplyPrompt
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class HttpInbox:
             return Press("failed")
         status = reply.status_code
         if 200 <= status < 300:
-            return Press("decided")
+            return Press("decided", _prompt(reply))
         if status == 401:
             return Press("unauthorized")
         if status == 403:
@@ -147,6 +147,15 @@ class HttpInbox:
         if reply.status_code in (400, 404, 409, 410, 422):
             return False
         raise InboxError(f"link: HTTP {reply.status_code}")
+
+
+def _prompt(reply: httpx.Response) -> ReplyPrompt | None:
+    try:
+        data = reply.json()["reply_prompt"]
+        ref, text = str(data["ref"]), str(data["text"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    return ReplyPrompt(ref, text[:500]) if ref and text else None
 
 
 def _error_code(reply: httpx.Response) -> str:

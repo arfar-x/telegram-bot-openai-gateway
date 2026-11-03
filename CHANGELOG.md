@@ -7,6 +7,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Inbox buttons can ask for a reply: when the service answers a button press with a prompt, the bot opens Telegram's
+  reply box for it, passes the person's reply back to the service, and removes the prompt afterwards. Applies migration
+  `005_inbox_reply_prompts.sql`.
+
 ## [0.2.0] - 2026-10-31
 
 ### Added

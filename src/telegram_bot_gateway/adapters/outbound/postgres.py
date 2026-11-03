@@ -200,12 +200,16 @@ class PostgresStore:
             (item_id, external_ref),
         )
 
-    async def save_inbox_reply(self, chat_id: int, message_id: int, ref: str) -> None:
+    async def save_inbox_reply(self, chat_id: int, message_id: int, ref: str, *, prompt: bool = False) -> None:
         await self._run(
-            "INSERT INTO inbox_replies (chat_id, message_id, ref) VALUES (%s, %s, %s) "
-            "ON CONFLICT (chat_id, message_id) DO UPDATE SET ref = EXCLUDED.ref",
-            (chat_id, message_id, ref),
+            "INSERT INTO inbox_replies (chat_id, message_id, ref, prompt) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (chat_id, message_id) DO UPDATE SET ref = EXCLUDED.ref, prompt = EXCLUDED.prompt",
+            (chat_id, message_id, ref, prompt),
         )
+
+    async def inbox_reply_is_prompt(self, chat_id: int, message_id: int) -> bool:
+        rows = await self._rows("SELECT prompt FROM inbox_replies WHERE chat_id = %s AND message_id = %s", (chat_id, message_id))
+        return bool(rows and rows[0]["prompt"])
 
     async def inbox_reply_ref(self, chat_id: int, message_id: int) -> str | None:
         rows = await self._rows("SELECT ref FROM inbox_replies WHERE chat_id = %s AND message_id = %s", (chat_id, message_id))

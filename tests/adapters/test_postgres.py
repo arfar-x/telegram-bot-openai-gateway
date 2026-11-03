@@ -27,7 +27,8 @@ async def store():
 async def test_migrations_apply_once_and_reopening_is_harmless(store):
     again = await PostgresStore.open(URL, MIGRATIONS)
     names = [r["name"] for r in await again._rows("SELECT name FROM schema_migrations")]
-    assert names == ["001_init.sql", "002_oidc_links.sql", "003_inbox_deliveries.sql", "004_inbox_replies.sql"]
+    assert names == ["001_init.sql", "002_oidc_links.sql", "003_inbox_deliveries.sql", "004_inbox_replies.sql",
+                     "005_inbox_reply_prompts.sql"]
     await again.close()
 
 
@@ -138,4 +139,7 @@ async def test_inbox_deliveries_are_remembered_once_and_pruned(store):
     assert await store.inbox_delivered("i1") == "5:100"
     assert await store.prune_inbox_deliveries(older_than_days=1) == 0
     await store.save_inbox_reply(5, 100, "ask:1")
+    assert not await store.inbox_reply_is_prompt(5, 100)
+    await store.save_inbox_reply(5, 102, "ask:2", prompt=True)
+    assert await store.inbox_reply_is_prompt(5, 102) and await store.inbox_reply_ref(5, 102) == "ask:2"
     assert await store.inbox_reply_ref(5, 100) == "ask:1" and await store.inbox_reply_ref(5, 101) is None

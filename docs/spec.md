@@ -240,6 +240,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
 | FR-INX-10 | An item of kind `question` MUST be delivered like an `approval`: one message with a button per entry; a press takes the same path as any inbox button. | done |
 | FR-INX-11 | When an item carries a non-empty `reply`, the bot MUST keep (chat id, message id) → `reply` in its database (migration `004`) once the message is sent. | done |
 | FR-INX-12 | A linked person's reply (Telegram reply-to) to such a message MUST be sent to `POST /replies` as `{ref, text}` under that person's own bearer and MUST NOT reach the chat agent; 2xx is answered "Sent.", a 4xx shows the service's error message, anything else says to try again. A reply to a message with no stored ref MUST behave as before. | done |
+| FR-INX-13 | When a button press is answered with a `reply_prompt` (`ref`, `text`), the bot MUST send `text` as a message that asks for a reply (Telegram's force-reply, replying to the pressed message), keep that message's id → `ref` (migration `005` marks it as a prompt), and answer the press without an alert. A person's reply to that prompt MUST go to `POST /replies` like any reply (FR-INX-12); afterwards the prompt message MUST be deleted, best effort, and a successful reply MUST NOT add a confirmation message. | done |
 | FR-INX-09 | Each approval MUST be its own message with its own buttons; delivering, pressing or updating one MUST NOT depend on another. | done |
 
 ## 6. Out of scope (v1)
@@ -266,7 +267,7 @@ A Telegram bot that is a client of any OpenAI-compatible Chat Completions endpoi
   compose.yaml          # the bot and its own PostgreSQL
   .env.example          # copied to .env by `make setup` (ignored by git)
   docs/spec.md  docs/OPERATOR_GUIDE.md
-  migrations/001_init.sql  002_oidc_links.sql  003_inbox_deliveries.sql  004_inbox_replies.sql
+  migrations/001_init.sql  002_oidc_links.sql  003_inbox_deliveries.sql  004_inbox_replies.sql  005_inbox_reply_prompts.sql
   scripts/              # prepare.sh, test-services.sh, lib/env.sh
   specs/                # capability specs and glossary
   .specify/memory/constitution.md
@@ -406,7 +407,7 @@ This document stays the short, test-gated registry of requirement ids. The behav
 | FR-CFG-04 | 006/FR-024 |
 | FR-CFG-05 | 006/FR-025 |
 | FR-CFG-06 | 008 Contract |
-| FR-INX-01 to FR-INX-12 | 008 User Stories 1 to 3 and Contract |
+| FR-INX-01 to FR-INX-13 | 008 User Stories 1 to 3 and Contract |
 | NFR-ARC-01 to NFR-ARC-04 | constitution I, III, V and each plan's Constitution Check |
 | AS-01 | 002 User Story 1 |
 | AS-02 | 001 User Stories 1 and 3 |
